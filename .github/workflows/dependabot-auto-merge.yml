@@ -1,0 +1,30 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot:
+    name: Auto-merge Dependabot patch updates
+    runs-on: ubuntu-latest
+    # Only run on Dependabot PRs — the `user.id` check is the canonical way
+    # to identify the bot and avoids false positives from user accounts.
+    if: github.event.pull_request.user.id == 49699333 # dependabot[bot]
+    steps:
+      - name: Classify the update
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ github.token }}
+      - name: Enable auto-merge (patch updates only)
+        # Scope to patch bumps — minor/major updates still get human review.
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge --auto --squash "$PR_URL"

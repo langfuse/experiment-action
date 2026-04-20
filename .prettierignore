@@ -1,0 +1,8 @@
+dist
+lib
+node_modules
+pnpm-lock.yaml
+*.py
+# Snapshot files must match verbatim what the renderer emits — do not
+# reformat them, or tests will break for cosmetic reasons.
+tests/snapshots/

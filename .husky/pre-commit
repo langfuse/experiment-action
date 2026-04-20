@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+echo "🚀 Running pre-commit checks..."
+echo
+
+if ! command -v pnpm &> /dev/null; then
+    echo "❌ Error: pnpm is not installed or not in PATH"
+    exit 1
+fi
+
+if ! pnpm precommit:check; then
+    echo "❌ Pre-commit checks failed. Please fix the reported issues before committing."
+    exit 1
+fi
+
+echo "🎉 All pre-commit checks passed! Ready to commit."

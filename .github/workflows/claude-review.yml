@@ -1,0 +1,28 @@
+name: Claude Review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: Claude code review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    if: >-
+      ${{ github.event.pull_request.head.repo.full_name == github.repository &&
+          vars.CLAUDE_REVIEW_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: anthropics/claude-code-action@8a953dedac4f533f912f13656070914693ed0575 # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          mode: review

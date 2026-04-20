@@ -10,7 +10,8 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
+# NOTE: dist/ from the Python template is intentionally unignored below —
+# GitHub Actions runs the bundled dist/index.js directly.
 downloads/
 eggs/
 .eggs/
@@ -205,3 +206,66 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# -----------------------------------------------------------------------------
+# Node / TypeScript
+# -----------------------------------------------------------------------------
+node_modules/
+lib/
+coverage/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# NOTE: dist/ is intentionally NOT ignored — GitHub runs the bundled action
+# directly from dist/index.js, so it must be committed.
+
+# -----------------------------------------------------------------------------
+# Editors / IDEs
+# -----------------------------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+.idea/
+*.swp
+*.swo
+
+# -----------------------------------------------------------------------------
+# macOS
+# -----------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# -----------------------------------------------------------------------------
+# Linux / Windows
+# -----------------------------------------------------------------------------
+*~
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# GitHub Actions local runs / act
+# -----------------------------------------------------------------------------
+.secrets
+.env.local
+act.log
+
+# -----------------------------------------------------------------------------
+# E2E scratch — docker compose file downloaded at runtime by
+# scripts/langfuse-server.mjs, plus any volumes docker keeps alongside it.
+# -----------------------------------------------------------------------------
+langfuse-server/
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+.direnv/

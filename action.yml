@@ -1,0 +1,73 @@
+name: "Langfuse Experiment"
+description: "Run a Langfuse experiment in CI, gate on regressions, and comment results on the PR."
+author: "Langfuse"
+branding:
+  icon: "activity"
+  color: "purple"
+
+inputs:
+  langfuse_public_key:
+    description: "Langfuse public API key."
+    required: true
+  langfuse_secret_key:
+    description: "Langfuse secret API key."
+    required: true
+  langfuse_base_url:
+    description: "Langfuse base URL."
+    required: false
+    default: "https://cloud.langfuse.com"
+
+  experiment_path:
+    description: "Path to an experiment script (.py/.ts/.js/.mjs), a directory, or a glob pattern."
+    required: true
+  dataset_name:
+    description: "Dataset to run the experiment against. If omitted, the user script is expected to select its own dataset."
+    required: false
+  dataset_version:
+    description: "Pin experiment to a specific dataset version."
+    required: false
+
+  custom_experiment_tags:
+    description: "Additional tags to attach to the experiment run. Multiline, one `key=value` per line."
+    required: false
+
+  should_fail_on_error:
+    description: "Fail the CI job when the experiment raises an error (including RegressionError)."
+    required: false
+    default: "true"
+  should_comment_on_pr:
+    description: "Post the experiment report as a PR comment."
+    required: false
+    default: "true"
+
+  python_sdk_version:
+    description: "Version of the Langfuse Python SDK to install via pip (for `.py` experiments). Use a specific version string or `latest`."
+    required: false
+    default: "latest"
+  js_sdk_version:
+    description: "Version of the Langfuse JS SDK (`@langfuse/client`) to install via npm (for `.ts` / `.js` / `.mjs` experiments). Use a specific version string or `latest`."
+    required: false
+    default: "latest"
+  should_skip_sdk_installation:
+    description: "Skip installing the Langfuse SDK entirely. Use this when you manage the Python/Node environment yourself (e.g. with your own `pip install` / `npm install` step before this action) — the action then trusts the ambient environment to provide `langfuse` / `@langfuse/client` + `tsx`."
+    required: false
+    default: "false"
+
+  github_token:
+    description: >-
+      Token used to post PR comments. Leave blank to fall back to the
+      GITHUB_TOKEN environment variable that GitHub Actions sets
+      automatically — that workflow token must have `pull-requests: write`
+      for the comment to land.
+    required: false
+    default: ""
+
+outputs:
+  result_json:
+    description: "JSON-encoded array of experiment results, one entry per script."
+  failed:
+    description: "'true' if any experiment script errored or raised a regression, else 'false'."
+
+runs:
+  using: "node24"
+  main: "dist/index.js"
