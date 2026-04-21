@@ -42,6 +42,7 @@ on:
 permissions:
   contents: read
   pull-requests: write # required for posting the experiment comment
+  actions: read # lets "View run" link to the specific job (falls back to the workflow-run URL otherwise)
 
 jobs:
   experiment:
@@ -82,21 +83,21 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 
 ### Inputs
 
-| Input                          | Required | Default                      | Description                                                                                                     |
-| ------------------------------ | -------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `langfuse_public_key`          | yes      |                              | Langfuse public API key.                                                                                        |
-| `langfuse_secret_key`          | yes      |                              | Langfuse secret API key.                                                                                        |
-| `langfuse_base_url`            | no       | `https://cloud.langfuse.com` | Langfuse base URL.                                                                                              |
-| `experiment_path`              | yes      |                              | File, directory, or glob pattern pointing at experiment scripts.                                                |
-| `dataset_name`                 | no       |                              | Dataset to run against. If omitted, the user script is expected to select its own dataset.                      |
-| `dataset_version`              | no       |                              | Pin the experiment to a specific dataset version.                                                               |
-| `custom_experiment_tags`       | no       |                              | Additional tags as a multiline `key=value` string.                                                              |
-| `should_fail_on_error`         | no       | `true`                       | Fail CI when the experiment raises.                                                                             |
-| `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                |
-| `python_sdk_version`           | no       | `latest`                     | Python SDK version to install via `pip` (for `.py` experiments).                                                |
-| `js_sdk_version`               | no       | `latest`                     | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).           |
-| `should_skip_sdk_installation` | no       | `false`                      | Skip automatic SDK installation and use the ambient Python/Node environment.                                    |
-| `github_token`                 | no       |                              | Token used to post the PR comment. Pass `${{ github.token }}` and grant `pull-requests: write` to the workflow. |
+| Input                          | Required | Default                      | Description                                                                                                                                                     |
+| ------------------------------ | -------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `langfuse_public_key`          | yes      |                              | Langfuse public API key.                                                                                                                                        |
+| `langfuse_secret_key`          | yes      |                              | Langfuse secret API key.                                                                                                                                        |
+| `langfuse_base_url`            | no       | `https://cloud.langfuse.com` | Langfuse base URL.                                                                                                                                              |
+| `experiment_path`              | yes      |                              | File, directory, or glob pattern pointing at experiment scripts.                                                                                                |
+| `dataset_name`                 | no       |                              | Dataset to run against. If omitted, the user script is expected to select its own dataset.                                                                      |
+| `dataset_version`              | no       |                              | Pin the experiment to a specific dataset version.                                                                                                               |
+| `custom_experiment_tags`       | no       |                              | Additional tags as a multiline `key=value` string.                                                                                                              |
+| `should_fail_on_error`         | no       | `true`                       | Fail CI when the experiment raises.                                                                                                                             |
+| `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                |
+| `python_sdk_version`           | no       | `latest`                     | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                |
+| `js_sdk_version`               | no       | `latest`                     | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                                           |
+| `should_skip_sdk_installation` | no       | `false`                      | Skip automatic SDK installation and use the ambient Python/Node environment.                                                                                    |
+| `github_token`                 | no       |                              | Token used to post the PR comment. Pass `${{ github.token }}` and grant `pull-requests: write` (and optionally `actions: read` for job-level "View run" links). |
 
 ### Outputs
 
@@ -193,18 +194,18 @@ Every experiment run is tagged with the following metadata, in addition to
 anything you pass via `custom_experiment_tags`. Action-generated tags are
 namespaced under `langfuse.*` so they're easy to distinguish from your own.
 
-| Tag                             | Source                                            | Notes                                                          |
-| ------------------------------- | ------------------------------------------------- | -------------------------------------------------------------- |
-| `langfuse.git_sha`              | `$GITHUB_SHA`                                     | The commit being tested.                                       |
-| `langfuse.branch`               | `$GITHUB_REF_NAME`                                |                                                                |
-| `langfuse.event`                | `$GITHUB_EVENT_NAME`                              | E.g. `pull_request`, `push`.                                   |
-| `langfuse.actor`                | `$GITHUB_TRIGGERING_ACTOR` → `$GITHUB_ACTOR`      | The user who kicked off the current attempt.                   |
-| `langfuse.pr_url`               | derived from `$GITHUB_REF`                        | Only on `pull_request` events.                                 |
-| `langfuse.github_workflow_name` | `$GITHUB_WORKFLOW`                                | E.g. `CI`.                                                     |
-| `langfuse.github_job_name`      | `$GITHUB_JOB`                                     | The workflow job running the experiment.                       |
-| `langfuse.github_job_attempt`   | `$GITHUB_RUN_ATTEMPT`                             | `"1"` on the initial run, `"2"`+ on re-runs.                   |
-| `langfuse.github_job_url`       | resolved via the GitHub API from `$GITHUB_RUN_ID` | Direct link to this job's logs. Requires `github_token`.       |
-| _custom_                        | `custom_experiment_tags`                          | Forwarded verbatim — pick whatever namespace your org prefers. |
+| Tag                             | Source                                            | Notes                                                                                                                       |
+| ------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `langfuse.git_sha`              | `$GITHUB_SHA`                                     | The commit being tested.                                                                                                    |
+| `langfuse.branch`               | `$GITHUB_REF_NAME`                                |                                                                                                                             |
+| `langfuse.event`                | `$GITHUB_EVENT_NAME`                              | E.g. `pull_request`, `push`.                                                                                                |
+| `langfuse.actor`                | `$GITHUB_TRIGGERING_ACTOR` → `$GITHUB_ACTOR`      | The user who kicked off the current attempt.                                                                                |
+| `langfuse.pr_url`               | derived from `$GITHUB_REF`                        | Only on `pull_request` events.                                                                                              |
+| `langfuse.github_workflow_name` | `$GITHUB_WORKFLOW`                                | E.g. `CI`.                                                                                                                  |
+| `langfuse.github_job_name`      | `$GITHUB_JOB`                                     | The workflow job running the experiment.                                                                                    |
+| `langfuse.github_job_attempt`   | `$GITHUB_RUN_ATTEMPT`                             | `"1"` on the initial run, `"2"`+ on re-runs.                                                                                |
+| `langfuse.github_job_url`       | resolved via the GitHub API from `$GITHUB_RUN_ID` | Direct link to this job's logs. Requires `github_token` with `actions: read`; falls back to the workflow-run URL otherwise. |
+| _custom_                        | `custom_experiment_tags`                          | Forwarded verbatim — pick whatever namespace your org prefers.                                                              |
 
 ## FAQ
 

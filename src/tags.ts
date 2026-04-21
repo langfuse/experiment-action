@@ -110,6 +110,6 @@ async function resolveJobUrlTag(
     token: opts.token,
     runId: env.GITHUB_RUN_ID ?? "",
     runAttempt: env.GITHUB_RUN_ATTEMPT ?? "1",
-    jobNameHint: env.GITHUB_JOB ?? "",
+    runnerName: env.RUNNER_NAME,
   });
 }

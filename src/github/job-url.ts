@@ -4,27 +4,28 @@ import * as github from "@actions/github";
 import { makeOctokit } from "./octokit";
 
 /**
- * Resolve the URL to the specific job this action is running in. Falls back
- * to `null` if the GitHub API can't be reached or the job can't be
- * disambiguated — callers should then substitute the workflow-run URL.
+ * Resolve the URL to the specific job this action is running in. Returns
+ * `null` when the API can't be reached or the job can't be pinned down —
+ * callers should then fall back to the workflow-run URL.
  *
- * Why this needs an API call: `GITHUB_JOB` is the YAML job *key*, not the
- * numeric job id the URL requires. We have to list jobs on the current run
- * attempt and pick ours. The heuristic, in order of preference:
+ * Why an API call is unavoidable: `GITHUB_JOB` is the YAML job *key*, not
+ * the numeric job id that appears in the URL, and GitHub doesn't expose
+ * that id anywhere in the runner environment. We list jobs on the current
+ * run attempt and pick ours by `runner_name` (a runner only executes one
+ * job at a time on a given attempt, so this is deterministic). If the env
+ * var is unexpectedly empty we fall through to a "single in-progress job"
+ * match before giving up.
  *
- *   1. `status === "in_progress"` — the usual case while we're executing
- *   2. any non-`completed` status if there's exactly one such job — that
- *      one must be us (covers GitHub briefly reporting `queued`/`waiting`)
- *   3. `jobs[].name === $GITHUB_JOB` — works when the YAML doesn't set a
- *      `name:` (the API echoes the key back as the display name)
+ * Requires `actions: read` on the workflow token. On 403 we surface a
+ * single warning so callers can self-diagnose.
  */
 export async function resolveJobUrl(params: {
   token: string;
   runId: string;
   runAttempt: string;
-  jobNameHint: string;
+  runnerName?: string;
 }): Promise<string | null> {
-  const { token, runId, runAttempt, jobNameHint } = params;
+  const { token, runId, runAttempt, runnerName } = params;
   if (!token || !runId) return null;
 
   const runIdNum = Number(runId);
@@ -42,43 +43,43 @@ export async function resolveJobUrl(params: {
       attempt_number: attemptNum,
     });
 
-    core.debug(
-      `Jobs for run ${runId} / attempt ${attemptNum}: ` +
-        data.jobs.map((j) => `${j.name}(${j.status})`).join(", "),
-    );
-
-    // 1. Our job is almost always the one currently marked "in_progress".
-    const inProgress = data.jobs.find((j) => j.status === "in_progress");
-    if (inProgress?.html_url) {
-      core.debug(`Resolved job URL via in_progress match: ${inProgress.html_url}`);
-      return inProgress.html_url;
+    if (runnerName) {
+      const match = data.jobs.find((j) => j.runner_name === runnerName);
+      if (match?.html_url) return match.html_url;
     }
 
-    // 2. If there's exactly one non-completed job, it must be us. Covers
-    //    the brief window where GitHub reports our job as `queued`,
-    //    `waiting`, or `pending` instead of `in_progress`.
-    const active = data.jobs.filter((j) => j.status !== "completed");
-    if (active.length === 1 && active[0].html_url) {
-      core.debug(`Resolved job URL via sole-active match: ${active[0].html_url}`);
-      return active[0].html_url;
+    // Fallback for the rare case where RUNNER_NAME is empty (some
+    // self-hosted setups): a single in-progress job is unambiguously us.
+    const inProgress = data.jobs.filter((j) => j.status === "in_progress");
+    if (inProgress.length === 1 && inProgress[0].html_url) {
+      return inProgress[0].html_url;
     }
 
-    // 3. Fall back to matching against the YAML key. Only works when the
-    //    user didn't set a custom `name:` on the job.
-    const byName = data.jobs.find((j) => j.name === jobNameHint);
-    if (byName?.html_url) {
-      core.debug(`Resolved job URL via name match (${jobNameHint}): ${byName.html_url}`);
-      return byName.html_url;
-    }
-
-    core.debug(
-      `Could not disambiguate the current job (name="${jobNameHint}", ` +
-        `${data.jobs.length} jobs, ${active.length} active).`,
+    core.warning(
+      `Could not identify the current job (runner="${runnerName ?? ""}", ` +
+        `${data.jobs.length} jobs, ${inProgress.length} in progress). ` +
+        "Falling back to the workflow-run URL.",
     );
     return null;
   } catch (err) {
+    const status =
+      typeof (err as { status?: unknown }).status === "number"
+        ? (err as { status: number }).status
+        : undefined;
     const msg = err instanceof Error ? err.message : String(err);
-    core.debug(`resolveJobUrl failed: ${msg}`);
+
+    if (status === 403) {
+      core.warning(
+        "Job-URL lookup was denied (HTTP 403). Grant `actions: read` to the " +
+          "workflow (or the specific job) so the PR comment can link directly " +
+          "to the job run. Falling back to the workflow-run URL.",
+      );
+    } else {
+      core.warning(
+        `Job-URL lookup failed (${status ?? "no status"}): ${msg}. ` +
+          "Falling back to the workflow-run URL.",
+      );
+    }
     return null;
   }
 }
