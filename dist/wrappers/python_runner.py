@@ -20,7 +20,9 @@ SIGPIPE, etc.).
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
+import inspect
 import json
 import sys
 import traceback
@@ -109,6 +111,11 @@ def _write_result(result_file: Path, value: Any) -> None:
     result_file.write_text(json.dumps(_serialize(value)), encoding="utf-8")
 
 
+async def _await(awaitable: Any) -> Any:
+    """Wrap a non-coroutine awaitable so asyncio.run can drive it."""
+    return await awaitable
+
+
 def _load_user_module(script_path: Path):
     module_name = "langfuse_user_experiment"
     spec = importlib.util.spec_from_file_location(module_name, script_path)
@@ -153,6 +160,12 @@ def main() -> int:
 
     try:
         result = experiment_fn()
+        # `async def experiment()` returns a coroutine; `def experiment()`
+        # that returns a Future/Task is also awaitable. Await both shapes
+        # so the experiment body actually runs (and its exceptions surface
+        # to the except block below).
+        if inspect.isawaitable(result):
+            result = asyncio.run(_await(result))
     except Exception as exc:
         # RegressionError carries a .result attribute — capture it if present.
         embedded_result = getattr(exc, "result", None)

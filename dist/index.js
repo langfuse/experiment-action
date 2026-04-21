@@ -68378,7 +68378,13 @@ class NodeScript extends ExperimentScript {
         core.debug(`Node wrapper: ${WRAPPER_PATH}, node_modules: ${this.nodeModulesDir}`);
         const runnerEnv = {
             ...buildEnv(env),
+            // CJS `require` honors NODE_PATH, so this keeps those callers
+            // working. ESM `import` ignores it — the wrapper registers a
+            // resolver (see node_resolver.mjs) that reads the install dir
+            // from `LANGFUSE_ACTION_INSTALL_DIR` and redirects @langfuse/*,
+            // @opentelemetry/*, and `tsx` specifiers there.
             NODE_PATH: this.nodeModulesDir,
+            LANGFUSE_ACTION_INSTALL_DIR: external_node_path_namespaceObject.dirname(this.nodeModulesDir),
         };
         const tsxBin = external_node_path_namespaceObject.join(this.nodeModulesDir, ".bin", "tsx");
         const started = Date.now();

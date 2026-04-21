@@ -6,9 +6,20 @@
 // Mirrors python_runner.py: always exits 0, writes status envelope to
 // <status_file> and result JSON to <result_file>.
 
+import { register } from "node:module";
 import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { resolve as resolvePath } from "node:path";
+
+// Register an ESM resolver for `@langfuse/*`, `@opentelemetry/*`, and
+// `tsx` that resolves them from our stable install dir. Needed because
+// ESM resolution ignores NODE_PATH — without this, `import "@langfuse/client"`
+// from the user's script fails unless their repo already has it in a
+// local `node_modules`. Registered *before* we dynamic-import the user
+// script so the hook applies to that import tree.
+if (process.env.LANGFUSE_ACTION_INSTALL_DIR) {
+  register(new URL("./node_resolver.mjs", import.meta.url), import.meta.url);
+}
 
 async function writeStatus(statusFile, payload) {
   await writeFile(statusFile, JSON.stringify(payload), "utf8");
