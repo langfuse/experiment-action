@@ -79,7 +79,6 @@ your own API keys. The rest of the flow is unchanged.
 2. Rebuild: `pnpm run build && git add dist`
 3. Commit and open a PR
 4. After merge, tag: `git tag v1.2.3 && git push --tags`
-5. Move the floating major tag: `git tag -f v1 && git push --tags -f`
 
 ## Contract changes
 
@@ -91,7 +90,16 @@ The public contract is:
 
 Any change to these needs a major version bump and a note in the PR description.
 
-## Reporting bugs
+## Reporting bugs and feature requests
 
-- Bugs in **this action** → open an issue here
-- Bugs in **Langfuse itself** (SDK, API, UI) → [langfuse/langfuse](https://github.com/langfuse/langfuse)
+All issue tracking happens in the main [langfuse/langfuse](https://github.com/langfuse/langfuse)
+repository — blank issues on this repo are disabled to keep reporting in
+one place.
+
+- **Bug in the action** or **bug in Langfuse itself (SDK, API, UI)** →
+  open a bug report in `langfuse/langfuse` with the `Experiment Action`
+  label. The links under "New issue" on this repo route there
+  automatically.
+- **Feature requests** → the `ideas` category in
+  [Langfuse discussions](https://github.com/orgs/langfuse/discussions).
+- **Usage questions** → the `support` category in the same discussions.

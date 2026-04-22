@@ -91,10 +91,12 @@ export async function getInstalledPythonSdkVersion(): Promise<string | null> {
 }
 
 /**
- * Install the Python SDK into the ambient Python environment — unless it is
- * already present at a compatible version (any version when `sdkVersion` is
- * "latest", the exact match otherwise). When `skipInstallation` is true the
- * installation is skipped entirely; we trust the caller's environment to
+ * Install the Python SDK into the ambient Python environment. Skips only
+ * when a specific version was requested and that exact version is already
+ * importable — `latest` always invokes pip so an older preinstalled copy
+ * gets upgraded (otherwise the contract "install the latest SDK" would be
+ * silently violated by any stale ambient install). When `skipInstallation`
+ * is true nothing is installed and we trust the caller's environment to
  * provide `langfuse`.
  */
 export async function ensurePythonSdk(
@@ -109,23 +111,25 @@ export async function ensurePythonSdk(
   }
 
   const installed = await getInstalledPythonSdkVersion();
+  if (installed && sdkVersion !== "latest" && installed === sdkVersion) {
+    core.info(`Python SDK already present (langfuse==${installed}); skipping install.`);
+    return;
+  }
   if (installed) {
-    core.debug(`Python langfuse already installed: ${installed}`);
-    if (sdkVersion === "latest" || installed === sdkVersion) {
-      core.info(`Python SDK already present (langfuse==${installed}); skipping install.`);
-      return;
-    }
-    core.debug(`Installed version ${installed} != requested ${sdkVersion}; reinstalling.`);
+    core.debug(
+      `Python langfuse ${installed} already installed; running pip to ` +
+        `${sdkVersion === "latest" ? "upgrade to latest" : `switch to ${sdkVersion}`}.`,
+    );
   }
 
-  const spec = sdkVersion === "latest" ? PY_PACKAGE : `${PY_PACKAGE}==${sdkVersion}`;
-  core.info(`Installing Python SDK: ${spec}`);
-  await exec.exec("python", [
-    "-m",
-    "pip",
-    "install",
-    "--disable-pip-version-check",
-    "--quiet",
-    spec,
-  ]);
+  const args = ["-m", "pip", "install", "--disable-pip-version-check", "--quiet"];
+  if (sdkVersion === "latest") {
+    // Ensure an older ambient install actually upgrades to the current
+    // latest; without --upgrade pip would no-op on a stale copy.
+    args.push("--upgrade", PY_PACKAGE);
+  } else {
+    args.push(`${PY_PACKAGE}==${sdkVersion}`);
+  }
+  core.info(`Installing Python SDK: ${args[args.length - 1]}`);
+  await exec.exec("python", args);
 }

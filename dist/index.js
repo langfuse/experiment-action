@@ -68449,9 +68449,10 @@ function nodeSdkRoot() {
 }
 /**
  * Install the Langfuse JS SDK (and OTel support packages + tsx) into a
- * stable directory. Skips `npm install` when a compatible copy is already
- * present — which is the common case when the action runs multiple times in
- * a single job.
+ * stable directory. Skips `npm install` only when a specific version was
+ * requested and the same version is already present — common on repeat
+ * invocations in a single job. For `latest` we always run npm so an older
+ * cached install gets upgraded.
  *
  * When `skipInstallation` is true we don't install anything and instead
  * return the caller's CWD `node_modules` — the user's workflow is expected
@@ -68473,15 +68474,19 @@ async function ensureNodeSdk(sdkVersion, skipInstallation) {
     catch {
         await promises_namespaceObject.writeFile(pkgPath, JSON.stringify({ name: "langfuse-action-runtime", private: true, type: "module" }, null, 2));
     }
+    // Skip only on exact-version match. For `latest` we always run npm so an
+    // older cached copy actually gets upgraded to the current latest — skipping
+    // purely because *something* is there would silently violate the contract.
     const existing = await readJsSdkVersion(nodeModulesDir);
-    if (existing) {
-        core.debug(`${JS_SDK_PACKAGE} already present at ${nodeModulesDir}: ${existing}`);
-        if (sdkVersion === "latest" || existing === sdkVersion) {
-            core.info(`JS SDK already present (${JS_SDK_PACKAGE}@${existing}); skipping install.`);
-            return nodeModulesDir;
-        }
+    if (existing && sdkVersion !== "latest" && existing === sdkVersion) {
+        core.info(`JS SDK already present (${JS_SDK_PACKAGE}@${existing}); skipping install.`);
+        return nodeModulesDir;
     }
-    const sdkSpec = sdkVersion === "latest" ? JS_SDK_PACKAGE : `${JS_SDK_PACKAGE}@${sdkVersion}`;
+    if (existing) {
+        core.debug(`${JS_SDK_PACKAGE} ${existing} already at ${nodeModulesDir}; running npm to ` +
+            `${sdkVersion === "latest" ? "refresh to latest" : `switch to ${sdkVersion}`}.`);
+    }
+    const sdkSpec = sdkVersion === "latest" ? `${JS_SDK_PACKAGE}@latest` : `${JS_SDK_PACKAGE}@${sdkVersion}`;
     const specs = [sdkSpec, ...JS_SUPPORT_PACKAGES, "tsx"];
     core.info(`Installing JS SDK into ${tmpRoot}: ${specs.join(", ")}`);
     await exec.exec("npm", ["install", "--silent", "--no-audit", "--no-fund", "--omit=dev", ...specs], { cwd: tmpRoot });
@@ -68567,10 +68572,12 @@ async function getInstalledPythonSdkVersion() {
     return version || null;
 }
 /**
- * Install the Python SDK into the ambient Python environment — unless it is
- * already present at a compatible version (any version when `sdkVersion` is
- * "latest", the exact match otherwise). When `skipInstallation` is true the
- * installation is skipped entirely; we trust the caller's environment to
+ * Install the Python SDK into the ambient Python environment. Skips only
+ * when a specific version was requested and that exact version is already
+ * importable — `latest` always invokes pip so an older preinstalled copy
+ * gets upgraded (otherwise the contract "install the latest SDK" would be
+ * silently violated by any stale ambient install). When `skipInstallation`
+ * is true nothing is installed and we trust the caller's environment to
  * provide `langfuse`.
  */
 async function ensurePythonSdk(sdkVersion, skipInstallation) {
@@ -68579,24 +68586,25 @@ async function ensurePythonSdk(sdkVersion, skipInstallation) {
         return;
     }
     const installed = await getInstalledPythonSdkVersion();
-    if (installed) {
-        core.debug(`Python langfuse already installed: ${installed}`);
-        if (sdkVersion === "latest" || installed === sdkVersion) {
-            core.info(`Python SDK already present (langfuse==${installed}); skipping install.`);
-            return;
-        }
-        core.debug(`Installed version ${installed} != requested ${sdkVersion}; reinstalling.`);
+    if (installed && sdkVersion !== "latest" && installed === sdkVersion) {
+        core.info(`Python SDK already present (langfuse==${installed}); skipping install.`);
+        return;
     }
-    const spec = sdkVersion === "latest" ? PY_PACKAGE : `${PY_PACKAGE}==${sdkVersion}`;
-    core.info(`Installing Python SDK: ${spec}`);
-    await exec.exec("python", [
-        "-m",
-        "pip",
-        "install",
-        "--disable-pip-version-check",
-        "--quiet",
-        spec,
-    ]);
+    if (installed) {
+        core.debug(`Python langfuse ${installed} already installed; running pip to ` +
+            `${sdkVersion === "latest" ? "upgrade to latest" : `switch to ${sdkVersion}`}.`);
+    }
+    const args = ["-m", "pip", "install", "--disable-pip-version-check", "--quiet"];
+    if (sdkVersion === "latest") {
+        // Ensure an older ambient install actually upgrades to the current
+        // latest; without --upgrade pip would no-op on a stale copy.
+        args.push("--upgrade", PY_PACKAGE);
+    }
+    else {
+        args.push(`${PY_PACKAGE}==${sdkVersion}`);
+    }
+    core.info(`Installing Python SDK: ${args[args.length - 1]}`);
+    await exec.exec("python", args);
 }
 
 ;// CONCATENATED MODULE: ./src/executors/index.ts

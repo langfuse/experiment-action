@@ -55,10 +55,11 @@ inputs:
 
   github_token:
     description: >-
-      Token used to post PR comments. Leave blank to fall back to the
-      GITHUB_TOKEN environment variable that GitHub Actions sets
-      automatically — that workflow token must have `pull-requests: write`
-      for the comment to land.
+      Token used to post the PR comment and resolve the current job URL
+      via the REST API. Pass `${{ github.token }}`; the workflow token
+      must have `pull-requests: write` for the comment to land and
+      `actions: read` to link to this specific job (falls back to the
+      workflow-run URL otherwise). Leave blank to skip both.
     required: false
     default: ""
 

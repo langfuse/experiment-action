@@ -124,9 +124,10 @@ function nodeSdkRoot(): string {
 
 /**
  * Install the Langfuse JS SDK (and OTel support packages + tsx) into a
- * stable directory. Skips `npm install` when a compatible copy is already
- * present — which is the common case when the action runs multiple times in
- * a single job.
+ * stable directory. Skips `npm install` only when a specific version was
+ * requested and the same version is already present — common on repeat
+ * invocations in a single job. For `latest` we always run npm so an older
+ * cached install gets upgraded.
  *
  * When `skipInstallation` is true we don't install anything and instead
  * return the caller's CWD `node_modules` — the user's workflow is expected
@@ -158,16 +159,23 @@ export async function ensureNodeSdk(
     );
   }
 
+  // Skip only on exact-version match. For `latest` we always run npm so an
+  // older cached copy actually gets upgraded to the current latest — skipping
+  // purely because *something* is there would silently violate the contract.
   const existing = await readJsSdkVersion(nodeModulesDir);
+  if (existing && sdkVersion !== "latest" && existing === sdkVersion) {
+    core.info(`JS SDK already present (${JS_SDK_PACKAGE}@${existing}); skipping install.`);
+    return nodeModulesDir;
+  }
   if (existing) {
-    core.debug(`${JS_SDK_PACKAGE} already present at ${nodeModulesDir}: ${existing}`);
-    if (sdkVersion === "latest" || existing === sdkVersion) {
-      core.info(`JS SDK already present (${JS_SDK_PACKAGE}@${existing}); skipping install.`);
-      return nodeModulesDir;
-    }
+    core.debug(
+      `${JS_SDK_PACKAGE} ${existing} already at ${nodeModulesDir}; running npm to ` +
+        `${sdkVersion === "latest" ? "refresh to latest" : `switch to ${sdkVersion}`}.`,
+    );
   }
 
-  const sdkSpec = sdkVersion === "latest" ? JS_SDK_PACKAGE : `${JS_SDK_PACKAGE}@${sdkVersion}`;
+  const sdkSpec =
+    sdkVersion === "latest" ? `${JS_SDK_PACKAGE}@latest` : `${JS_SDK_PACKAGE}@${sdkVersion}`;
   const specs = [sdkSpec, ...JS_SUPPORT_PACKAGES, "tsx"];
   core.info(`Installing JS SDK into ${tmpRoot}: ${specs.join(", ")}`);
   await exec.exec(
