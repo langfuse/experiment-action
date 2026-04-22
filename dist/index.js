@@ -68319,29 +68319,6 @@ async function readResultFile(file) {
         return null;
     }
 }
-/**
- * Environment variables passed to user scripts. We use LANGFUSE_* names that
- * match the SDK's default env lookups, plus a few experiment-scoped vars so
- * the user's script can read them without needing context injection.
- */
-function buildEnv(env) {
-    const { inputs, metadata } = env;
-    const out = {};
-    for (const [k, v] of Object.entries(process.env)) {
-        if (typeof v === "string")
-            out[k] = v;
-    }
-    out.LANGFUSE_PUBLIC_KEY = inputs.langfusePublicKey;
-    out.LANGFUSE_SECRET_KEY = inputs.langfuseSecretKey;
-    out.LANGFUSE_HOST = inputs.langfuseBaseUrl;
-    out.LANGFUSE_BASEURL = inputs.langfuseBaseUrl;
-    out.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(metadata);
-    if (inputs.datasetName)
-        out.LANGFUSE_DATASET_NAME = inputs.datasetName;
-    if (inputs.datasetVersion)
-        out.LANGFUSE_DATASET_VERSION = inputs.datasetVersion;
-    return out;
-}
 
 ;// CONCATENATED MODULE: ./src/executors/node.ts
 
@@ -68376,8 +68353,14 @@ class NodeScript extends ExperimentScript {
         const statusFile = external_node_path_namespaceObject.join(tmpDir, "status.json");
         core.debug(`NodeScript.run path=${this.path} tmpDir=${tmpDir}`);
         core.debug(`Node wrapper: ${WRAPPER_PATH}, node_modules: ${this.nodeModulesDir}`);
+        const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
         const runnerEnv = {
-            ...buildEnv(env),
+            ...baseEnv,
+            LANGFUSE_PUBLIC_KEY: env.inputs.langfusePublicKey,
+            LANGFUSE_SECRET_KEY: env.inputs.langfuseSecretKey,
+            LANGFUSE_HOST: env.inputs.langfuseBaseUrl,
+            LANGFUSE_BASEURL: env.inputs.langfuseBaseUrl,
+            LANGFUSE_EXPERIMENT_METADATA: JSON.stringify(env.metadata),
             // CJS `require` honors NODE_PATH, so this keeps those callers
             // working. ESM `import` ignores it — the wrapper registers a
             // resolver (see node_resolver.mjs) that reads the install dir
@@ -68386,6 +68369,12 @@ class NodeScript extends ExperimentScript {
             NODE_PATH: this.nodeModulesDir,
             LANGFUSE_ACTION_INSTALL_DIR: external_node_path_namespaceObject.dirname(this.nodeModulesDir),
         };
+        if (env.inputs.datasetName) {
+            runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
+        }
+        if (env.inputs.datasetVersion) {
+            runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
+        }
         const tsxBin = external_node_path_namespaceObject.join(this.nodeModulesDir, ".bin", "tsx");
         const started = Date.now();
         let execError = null;
@@ -68511,11 +68500,23 @@ class PythonScript extends ExperimentScript {
         const statusFile = external_node_path_namespaceObject.join(tmpDir, "status.json");
         core.debug(`PythonScript.run path=${this.path} tmpDir=${tmpDir}`);
         core.debug(`Python wrapper: ${python_WRAPPER_PATH}`);
+        const runnerEnv = Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
+        runnerEnv.LANGFUSE_PUBLIC_KEY = env.inputs.langfusePublicKey;
+        runnerEnv.LANGFUSE_SECRET_KEY = env.inputs.langfuseSecretKey;
+        runnerEnv.LANGFUSE_HOST = env.inputs.langfuseBaseUrl;
+        runnerEnv.LANGFUSE_BASEURL = env.inputs.langfuseBaseUrl;
+        runnerEnv.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(env.metadata);
+        if (env.inputs.datasetName) {
+            runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
+        }
+        if (env.inputs.datasetVersion) {
+            runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
+        }
         const started = Date.now();
         let execError = null;
         try {
             await exec.exec("python", [python_WRAPPER_PATH, this.path, resultFile, statusFile], {
-                env: buildEnv(env),
+                env: runnerEnv,
             });
         }
         catch (err) {

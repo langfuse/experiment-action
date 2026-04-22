@@ -38,27 +38,3 @@ export async function readResultFile(file: string): Promise<unknown | null> {
     return null;
   }
 }
-
-/**
- * Environment variables passed to user scripts. We use LANGFUSE_* names that
- * match the SDK's default env lookups, plus a few experiment-scoped vars so
- * the user's script can read them without needing context injection.
- */
-export function buildEnv(env: RunnerEnv): Record<string, string> {
-  const { inputs, metadata } = env;
-  const out: Record<string, string> = {};
-
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === "string") out[k] = v;
-  }
-
-  out.LANGFUSE_PUBLIC_KEY = inputs.langfusePublicKey;
-  out.LANGFUSE_SECRET_KEY = inputs.langfuseSecretKey;
-  out.LANGFUSE_HOST = inputs.langfuseBaseUrl;
-  out.LANGFUSE_BASEURL = inputs.langfuseBaseUrl;
-  out.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(metadata);
-
-  if (inputs.datasetName) out.LANGFUSE_DATASET_NAME = inputs.datasetName;
-  if (inputs.datasetVersion) out.LANGFUSE_DATASET_VERSION = inputs.datasetVersion;
-  return out;
-}

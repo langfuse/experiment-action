@@ -8,7 +8,7 @@ import * as exec from "@actions/exec";
 import type { ScriptError, ScriptResult } from "@/types";
 
 import { ExperimentScript } from "./script";
-import { buildEnv, readResultFile, readStatusFile, type RunnerEnv } from "./shared";
+import { readResultFile, readStatusFile, type RunnerEnv } from "./shared";
 
 const WRAPPER_PATH = path.join(__dirname, "wrappers", "python_runner.py");
 const PY_PACKAGE = "langfuse";
@@ -24,11 +24,26 @@ export class PythonScript extends ExperimentScript {
     core.debug(`PythonScript.run path=${this.path} tmpDir=${tmpDir}`);
     core.debug(`Python wrapper: ${WRAPPER_PATH}`);
 
+    const runnerEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([, value]) => typeof value === "string"),
+    ) as Record<string, string>;
+    runnerEnv.LANGFUSE_PUBLIC_KEY = env.inputs.langfusePublicKey;
+    runnerEnv.LANGFUSE_SECRET_KEY = env.inputs.langfuseSecretKey;
+    runnerEnv.LANGFUSE_HOST = env.inputs.langfuseBaseUrl;
+    runnerEnv.LANGFUSE_BASEURL = env.inputs.langfuseBaseUrl;
+    runnerEnv.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(env.metadata);
+    if (env.inputs.datasetName) {
+      runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
+    }
+    if (env.inputs.datasetVersion) {
+      runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
+    }
+
     const started = Date.now();
     let execError: Error | null = null;
     try {
       await exec.exec("python", [WRAPPER_PATH, this.path, resultFile, statusFile], {
-        env: buildEnv(env),
+        env: runnerEnv,
       });
     } catch (err) {
       execError = err instanceof Error ? err : new Error(String(err));

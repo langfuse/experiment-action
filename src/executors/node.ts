@@ -8,7 +8,7 @@ import * as exec from "@actions/exec";
 import type { ScriptError, ScriptResult } from "@/types";
 
 import { ExperimentScript } from "./script";
-import { buildEnv, readResultFile, readStatusFile, type RunnerEnv } from "./shared";
+import { readResultFile, readStatusFile, type RunnerEnv } from "./shared";
 
 const WRAPPER_PATH = path.join(__dirname, "wrappers", "node_runner.mjs");
 
@@ -43,8 +43,17 @@ export class NodeScript extends ExperimentScript {
     core.debug(`NodeScript.run path=${this.path} tmpDir=${tmpDir}`);
     core.debug(`Node wrapper: ${WRAPPER_PATH}, node_modules: ${this.nodeModulesDir}`);
 
+    const baseEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([, value]) => typeof value === "string"),
+    ) as Record<string, string>;
+
     const runnerEnv: Record<string, string> = {
-      ...buildEnv(env),
+      ...baseEnv,
+      LANGFUSE_PUBLIC_KEY: env.inputs.langfusePublicKey,
+      LANGFUSE_SECRET_KEY: env.inputs.langfuseSecretKey,
+      LANGFUSE_HOST: env.inputs.langfuseBaseUrl,
+      LANGFUSE_BASEURL: env.inputs.langfuseBaseUrl,
+      LANGFUSE_EXPERIMENT_METADATA: JSON.stringify(env.metadata),
       // CJS `require` honors NODE_PATH, so this keeps those callers
       // working. ESM `import` ignores it — the wrapper registers a
       // resolver (see node_resolver.mjs) that reads the install dir
@@ -53,6 +62,12 @@ export class NodeScript extends ExperimentScript {
       NODE_PATH: this.nodeModulesDir,
       LANGFUSE_ACTION_INSTALL_DIR: path.dirname(this.nodeModulesDir),
     };
+    if (env.inputs.datasetName) {
+      runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
+    }
+    if (env.inputs.datasetVersion) {
+      runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
+    }
 
     const tsxBin = path.join(this.nodeModulesDir, ".bin", "tsx");
 
