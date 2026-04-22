@@ -1,7 +1,7 @@
 // Langfuse experiment runner wrapper (Node / tsx).
 //
 // Invoked as:
-//     node --import tsx ./node_runner.mjs <user_script> <result_file> <status_file>
+//     <install-dir>/node_modules/.bin/tsx ./node_runner.mjs <user_script> <result_file> <status_file>
 //
 // Mirrors python_runner.py: always exits 0, writes status envelope to
 // <status_file> and result JSON to <result_file>.

@@ -44,8 +44,8 @@ const DEFAULT_METADATA: Record<string, MetadataResolver> = {
 
 /**
  * The full default metadata bag for the current action invocation:
- * env-derived entries + any async-resolved ones (e.g. `langfuse.job_url`) +
- * user-supplied `custom` metadata layered on top.
+ * env-derived entries + any async-resolved ones (e.g. `langfuse.github_job_url`)
+ * + user-supplied `custom` metadata layered on top.
  *
  * Custom entries win on key collisions so authors can override anything the
  * action would emit automatically. Omit `token` to skip the job-URL lookup
