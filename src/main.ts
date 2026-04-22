@@ -4,8 +4,8 @@ import { publishExperimentComment } from "./comment";
 import { discoverScripts } from "./discover";
 import { setupExperimentScripts } from "./executors";
 import { resolveInputs } from "./inputs";
+import { resolveDefaultMetadata } from "./metadata";
 import { setOutputs } from "./output";
-import { resolveDefaultTags } from "./tags";
 import type { ScriptResult } from "./types";
 
 export async function run(): Promise<void> {
@@ -31,11 +31,11 @@ export async function run(): Promise<void> {
     shouldSkipSdkInstallation: inputs.shouldSkipSdkInstallation,
   });
 
-  const tags = await resolveDefaultTags({
+  const metadata = await resolveDefaultMetadata({
     token: inputs.githubToken,
-    custom: inputs.customTags,
+    custom: inputs.customMetadata,
   });
-  const runnerEnv = { inputs, tags };
+  const runnerEnv = { inputs, metadata };
 
   const results: ScriptResult[] = [];
   for (const script of scripts) {
@@ -60,7 +60,7 @@ export async function run(): Promise<void> {
   setOutputs(results);
 
   if (inputs.shouldCommentOnPr) {
-    await publishExperimentComment({ inputs, results, tags });
+    await publishExperimentComment({ inputs, results, metadata });
   }
 
   if (anyFailed && inputs.shouldFailOnError) {

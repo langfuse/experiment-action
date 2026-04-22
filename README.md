@@ -91,7 +91,7 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 | `experiment_path`              | yes      |                              | File, directory, or glob pattern pointing at experiment scripts.                                                                                                |
 | `dataset_name`                 | no       |                              | Dataset to run against. If omitted, the user script is expected to select its own dataset.                                                                      |
 | `dataset_version`              | no       |                              | Pin the experiment to a specific dataset version.                                                                                                               |
-| `custom_experiment_tags`       | no       |                              | Additional tags as a multiline `key=value` string.                                                                                                              |
+| `experiment_metadata`          | no       |                              | Additional metadata as a multiline `key=value` string. Shown under the Metadata column in the Langfuse UI.                                                      |
 | `should_fail_on_error`         | no       | `true`                       | Fail CI when the experiment raises.                                                                                                                             |
 | `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                |
 | `python_sdk_version`           | no       | `latest`                     | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                |
@@ -190,11 +190,11 @@ The action serializes the returned value to JSON and exposes it through the
 
 ### Experiment metadata
 
-Every experiment run is tagged with the following metadata, in addition to
-anything you pass via `custom_experiment_tags`. Action-generated tags are
-namespaced under `langfuse.*` so they're easy to distinguish from your own.
+Every experiment run carries the following metadata, in addition to anything
+you pass via `experiment_metadata`. Action-generated keys are namespaced
+under `langfuse.*` so they're easy to distinguish from your own.
 
-| Tag                             | Source                                            | Notes                                                                                                                       |
+| Key                             | Source                                            | Notes                                                                                                                       |
 | ------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `langfuse.git_sha`              | `$GITHUB_SHA`                                     | The commit being tested.                                                                                                    |
 | `langfuse.branch`               | `$GITHUB_REF_NAME`                                |                                                                                                                             |
@@ -205,7 +205,7 @@ namespaced under `langfuse.*` so they're easy to distinguish from your own.
 | `langfuse.github_job_name`      | `$GITHUB_JOB`                                     | The workflow job running the experiment.                                                                                    |
 | `langfuse.github_job_attempt`   | `$GITHUB_RUN_ATTEMPT`                             | `"1"` on the initial run, `"2"`+ on re-runs.                                                                                |
 | `langfuse.github_job_url`       | resolved via the GitHub API from `$GITHUB_RUN_ID` | Direct link to this job's logs. Requires `github_token` with `actions: read`; falls back to the workflow-run URL otherwise. |
-| _custom_                        | `custom_experiment_tags`                          | Forwarded verbatim — pick whatever namespace your org prefers.                                                              |
+| _custom_                        | `experiment_metadata`                             | Forwarded verbatim — pick whatever namespace your org prefers.                                                              |
 
 ## FAQ
 
@@ -313,7 +313,7 @@ For two things, both optional:
    `pull-requests: write` permission on the workflow).
 2. Resolving the specific job URL — the action does one API call to
    `GET /repos/.../actions/runs/<id>/jobs` so the PR comment and the
-   `langfuse.github_job_url` tag link to _this_ job's logs instead of the
+   `langfuse.github_job_url` metadata link to _this_ job's logs instead of the
    broader workflow run.
 
 If `github_token` is blank, both features are silently skipped; the

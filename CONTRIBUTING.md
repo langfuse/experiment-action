@@ -24,7 +24,7 @@ pnpm run all    # typecheck + lint + test + bundle
 action.yml                    # action manifest
 src/
   main.ts                     # entry point
-  inputs.ts, tags.ts, ...     # parsing + wiring
+  inputs.ts, metadata.ts, ... # parsing + wiring
   runners/
     install.ts                # `pip install langfuse`, `npm install langfuse tsx`
     python.ts, node.ts        # dispatch to the right wrapper

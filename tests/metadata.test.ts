@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildWorkflowRunUrl, resolveDefaultTags } from "@/tags";
+import { buildWorkflowRunUrl, resolveDefaultMetadata } from "@/metadata";
 
-describe("resolveDefaultTags", () => {
-  it("derives tags from GITHUB_* env vars and prefixes them with `langfuse.`", async () => {
-    const tags = await resolveDefaultTags({
+describe("resolveDefaultMetadata", () => {
+  it("derives entries from GITHUB_* env vars and prefixes them with `langfuse.`", async () => {
+    const metadata = await resolveDefaultMetadata({
       env: {
         GITHUB_REPOSITORY: "langfuse/experiment-action",
         GITHUB_SERVER_URL: "https://github.com",
@@ -21,7 +21,7 @@ describe("resolveDefaultTags", () => {
       },
     });
 
-    expect(tags).toEqual({
+    expect(metadata).toEqual({
       "langfuse.git_sha": "abc123",
       "langfuse.branch": "feat/xyz",
       "langfuse.actor": "alice",
@@ -34,35 +34,35 @@ describe("resolveDefaultTags", () => {
   });
 
   it("falls back from GITHUB_TRIGGERING_ACTOR to GITHUB_ACTOR when the former is unset", async () => {
-    const tags = await resolveDefaultTags({ env: { GITHUB_ACTOR: "alice" } });
-    expect(tags["langfuse.actor"]).toBe("alice");
+    const metadata = await resolveDefaultMetadata({ env: { GITHUB_ACTOR: "alice" } });
+    expect(metadata["langfuse.actor"]).toBe("alice");
   });
 
   it("prefers GITHUB_TRIGGERING_ACTOR when both are set (i.e. re-runs)", async () => {
-    const tags = await resolveDefaultTags({
+    const metadata = await resolveDefaultMetadata({
       env: { GITHUB_ACTOR: "alice", GITHUB_TRIGGERING_ACTOR: "bob" },
     });
-    expect(tags["langfuse.actor"]).toBe("bob");
+    expect(metadata["langfuse.actor"]).toBe("bob");
   });
 
   it("omits fields that are not set", async () => {
-    expect(await resolveDefaultTags({ env: {} })).toEqual({});
+    expect(await resolveDefaultMetadata({ env: {} })).toEqual({});
   });
 
   it("omits pr_url when not a PR event", async () => {
-    const tags = await resolveDefaultTags({
+    const metadata = await resolveDefaultMetadata({
       env: {
         GITHUB_REPOSITORY: "a/b",
         GITHUB_REF: "refs/heads/main",
         GITHUB_SHA: "xyz",
       },
     });
-    expect(tags["langfuse.pr_url"]).toBeUndefined();
-    expect(tags["langfuse.git_sha"]).toBe("xyz");
+    expect(metadata["langfuse.pr_url"]).toBeUndefined();
+    expect(metadata["langfuse.git_sha"]).toBe("xyz");
   });
 
-  it("does not emit the old tag names we renamed/dropped", async () => {
-    const tags = await resolveDefaultTags({
+  it("does not emit the old key names we renamed/dropped", async () => {
+    const metadata = await resolveDefaultMetadata({
       env: {
         GITHUB_REPOSITORY: "a/b",
         GITHUB_RUN_ID: "1",
@@ -75,29 +75,29 @@ describe("resolveDefaultTags", () => {
         GITHUB_WORKFLOW_SHA: "deadbeef",
       },
     });
-    expect(tags["langfuse.triggering_actor"]).toBeUndefined();
-    expect(tags["langfuse.workflow_name"]).toBeUndefined();
-    expect(tags["langfuse.job_name"]).toBeUndefined();
-    expect(tags["langfuse.run_attempt"]).toBeUndefined();
-    expect(tags["langfuse.job_url"]).toBeUndefined();
-    expect(tags["langfuse.workflow_run_url"]).toBeUndefined();
-    expect(tags["langfuse.workflow_url"]).toBeUndefined();
+    expect(metadata["langfuse.triggering_actor"]).toBeUndefined();
+    expect(metadata["langfuse.workflow_name"]).toBeUndefined();
+    expect(metadata["langfuse.job_name"]).toBeUndefined();
+    expect(metadata["langfuse.run_attempt"]).toBeUndefined();
+    expect(metadata["langfuse.job_url"]).toBeUndefined();
+    expect(metadata["langfuse.workflow_run_url"]).toBeUndefined();
+    expect(metadata["langfuse.workflow_url"]).toBeUndefined();
   });
 
-  it("layers custom tags on top of env-derived defaults (custom wins collisions)", async () => {
-    const tags = await resolveDefaultTags({
+  it("layers custom metadata on top of env-derived defaults (custom wins collisions)", async () => {
+    const metadata = await resolveDefaultMetadata({
       env: { GITHUB_SHA: "aaa" },
       custom: { team: "platform", "langfuse.git_sha": "bbb" },
     });
-    expect(tags).toEqual({
+    expect(metadata).toEqual({
       "langfuse.git_sha": "bbb",
       team: "platform",
     });
   });
 
   it("skips the github_job_url lookup when no token is provided", async () => {
-    const tags = await resolveDefaultTags({ env: { GITHUB_SHA: "aaa" } });
-    expect(tags["langfuse.github_job_url"]).toBeUndefined();
+    const metadata = await resolveDefaultMetadata({ env: { GITHUB_SHA: "aaa" } });
+    expect(metadata["langfuse.github_job_url"]).toBeUndefined();
   });
 });
 

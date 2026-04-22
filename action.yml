@@ -27,8 +27,8 @@ inputs:
     description: "Pin experiment to a specific dataset version."
     required: false
 
-  custom_experiment_tags:
-    description: "Additional tags to attach to the experiment run. Multiline, one `key=value` per line."
+  experiment_metadata:
+    description: "Additional metadata to attach to the experiment run. Multiline, one `key=value` per line. Shown under the Metadata column in the Langfuse UI."
     required: false
 
   should_fail_on_error:

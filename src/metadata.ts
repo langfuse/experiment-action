@@ -1,33 +1,33 @@
 import { resolveJobUrl } from "@/github/job-url";
 
 /**
- * Namespace prepended to every default tag. Makes action-generated metadata
- * unambiguous alongside whatever tags the user adds via
- * `custom_experiment_tags` (which are passed through verbatim).
+ * Namespace prepended to every default metadata key. Makes action-generated
+ * metadata unambiguous alongside whatever the user adds via
+ * `experiment_metadata` (which is passed through verbatim).
  */
-const TAG_PREFIX = "langfuse.";
+const METADATA_PREFIX = "langfuse.";
 
-export interface ResolveTagsOptions {
+export interface ResolveMetadataOptions {
   /** GitHub token used to resolve the job URL. Omit to skip that lookup. */
   token?: string;
-  /** User-supplied tags, merged on top of the defaults. */
+  /** User-supplied metadata, merged on top of the defaults. */
   custom?: Record<string, string>;
   /** Override `process.env` in tests. */
   env?: NodeJS.ProcessEnv;
 }
 
-type TagResolver = (
+type MetadataResolver = (
   env: NodeJS.ProcessEnv,
   opts: { token?: string },
 ) => string | null | Promise<string | null>;
 
 /**
- * The complete set of default tags the action emits, in one place. Each
- * resolver returns the string value (with `langfuse.` prefix added
- * automatically) or `null` to skip the tag entirely. Read top-to-bottom to
- * see the full default tag vocabulary.
+ * The complete set of default metadata entries the action emits, in one
+ * place. Each resolver returns the string value (with `langfuse.` prefix
+ * added automatically) or `null` to skip the entry entirely. Read
+ * top-to-bottom to see the full default metadata vocabulary.
  */
-const DEFAULT_TAGS: Record<string, TagResolver> = {
+const DEFAULT_METADATA: Record<string, MetadataResolver> = {
   git_sha: (env) => env.GITHUB_SHA ?? null,
   branch: (env) => env.GITHUB_REF_NAME ?? null,
   event: (env) => env.GITHUB_EVENT_NAME ?? null,
@@ -36,46 +36,46 @@ const DEFAULT_TAGS: Record<string, TagResolver> = {
   github_job_attempt: (env) => env.GITHUB_RUN_ATTEMPT ?? null,
   // `actor` is the person who started *this* attempt — identical to the PR
   // opener on first runs, different when someone re-ran jobs. Covers both
-  // cases in one tag.
+  // cases in one entry.
   actor: (env) => env.GITHUB_TRIGGERING_ACTOR ?? env.GITHUB_ACTOR ?? null,
   pr_url: resolvePrUrl,
-  github_job_url: resolveJobUrlTag,
+  github_job_url: resolveJobUrlMetadata,
 };
 
 /**
- * The full default tag bag for the current action invocation: env-derived
- * tags + any async-resolved tags (e.g. `langfuse.job_url`) + user-supplied
- * `custom` tags layered on top.
+ * The full default metadata bag for the current action invocation:
+ * env-derived entries + any async-resolved ones (e.g. `langfuse.job_url`) +
+ * user-supplied `custom` metadata layered on top.
  *
- * Custom tags win on key collisions so authors can override anything the
+ * Custom entries win on key collisions so authors can override anything the
  * action would emit automatically. Omit `token` to skip the job-URL lookup
  * (useful in tests).
  */
-export async function resolveDefaultTags(
-  options: ResolveTagsOptions = {},
+export async function resolveDefaultMetadata(
+  options: ResolveMetadataOptions = {},
 ): Promise<Record<string, string>> {
   const env = options.env ?? process.env;
   const opts = { token: options.token };
 
   const resolved = await Promise.all(
-    Object.entries(DEFAULT_TAGS).map(
+    Object.entries(DEFAULT_METADATA).map(
       async ([name, resolve]) => [name, await resolve(env, opts)] as const,
     ),
   );
 
-  const tags: Record<string, string> = {};
+  const metadata: Record<string, string> = {};
   for (const [name, value] of resolved) {
     if (typeof value === "string" && value) {
-      tags[`${TAG_PREFIX}${name}`] = value;
+      metadata[`${METADATA_PREFIX}${name}`] = value;
     }
   }
 
-  return { ...tags, ...(options.custom ?? {}) };
+  return { ...metadata, ...(options.custom ?? {}) };
 }
 
 /**
- * Not part of the default tag set — kept as a helper so the PR comment can
- * fall back to the workflow-run URL if the job URL lookup fails (the run
+ * Not part of the default metadata set — kept as a helper so the PR comment
+ * can fall back to the workflow-run URL if the job URL lookup fails (the run
  * page still has all the logs; it's just one click deeper).
  */
 export function buildWorkflowRunUrl(env: NodeJS.ProcessEnv = process.env): string | null {
@@ -87,8 +87,8 @@ export function buildWorkflowRunUrl(env: NodeJS.ProcessEnv = process.env): strin
 }
 
 // ---------------------------------------------------------------------------
-// Resolver helpers — kept below the DEFAULT_TAGS table so the table itself
-// stays scannable.
+// Resolver helpers — kept below the DEFAULT_METADATA table so the table
+// itself stays scannable.
 // ---------------------------------------------------------------------------
 
 function resolvePrUrl(env: NodeJS.ProcessEnv): string | null {
@@ -101,7 +101,7 @@ function resolvePrUrl(env: NodeJS.ProcessEnv): string | null {
   return `${server}/${repo}/pull/${prMatch[1]}`;
 }
 
-async function resolveJobUrlTag(
+async function resolveJobUrlMetadata(
   env: NodeJS.ProcessEnv,
   opts: { token?: string },
 ): Promise<string | null> {

@@ -9,7 +9,7 @@ export interface ResolvedInputs {
   datasetName?: string;
   datasetVersion?: string;
 
-  customTags: Record<string, string>;
+  customMetadata: Record<string, string>;
 
   shouldFailOnError: boolean;
   shouldCommentOnPr: boolean;

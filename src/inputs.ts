@@ -44,7 +44,7 @@ const OptionalTrimmedString = v.pipe(
  * Lines are trimmed; blank lines and `#` comments are skipped; malformed
  * entries log a warning and are ignored.
  */
-export function parseTags(raw: string): Record<string, string> {
+export function parseMetadata(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
   if (!raw) return out;
   for (const line of raw.split(/\r?\n/)) {
@@ -52,13 +52,13 @@ export function parseTags(raw: string): Record<string, string> {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eq = trimmed.indexOf("=");
     if (eq === -1) {
-      core.warning(`Ignoring tag "${trimmed}" — expected key=value.`);
+      core.warning(`Ignoring metadata entry "${trimmed}" — expected key=value.`);
       continue;
     }
     const key = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
     if (!key) {
-      core.warning(`Ignoring tag with empty key: "${trimmed}".`);
+      core.warning(`Ignoring metadata entry with empty key: "${trimmed}".`);
       continue;
     }
     out[key] = value;
@@ -86,7 +86,7 @@ const InputsSchema = v.object({
   langfuseBaseUrl: stringWithDefault("https://cloud.langfuse.com"),
   datasetName: OptionalTrimmedString,
   datasetVersion: OptionalTrimmedString,
-  customTags: v.pipe(v.string(), v.transform(parseTags)),
+  customMetadata: v.pipe(v.string(), v.transform(parseMetadata)),
   shouldFailOnError: booleanFromString(true),
   shouldCommentOnPr: booleanFromString(true),
   pythonSdkVersion: stringWithDefault("latest"),
@@ -110,7 +110,7 @@ export function resolveInputs(): ResolvedInputs {
     langfuseBaseUrl: core.getInput("langfuse_base_url"),
     datasetName: core.getInput("dataset_name"),
     datasetVersion: core.getInput("dataset_version"),
-    customTags: core.getInput("custom_experiment_tags"),
+    customMetadata: core.getInput("experiment_metadata"),
     shouldFailOnError: core.getInput("should_fail_on_error"),
     shouldCommentOnPr: core.getInput("should_comment_on_pr"),
     pythonSdkVersion: core.getInput("python_sdk_version"),
@@ -126,7 +126,7 @@ export function resolveInputs(): ResolvedInputs {
   }
 
   const inputs = result.output;
-  core.debug(`Parsed ${Object.keys(inputs.customTags).length} custom tag(s).`);
+  core.debug(`Parsed ${Object.keys(inputs.customMetadata).length} custom metadata entry(ies).`);
 
   // Mask secrets so they don't appear in logs even if we happen to log them.
   if (inputs.langfuseSecretKey) core.setSecret(inputs.langfuseSecretKey);

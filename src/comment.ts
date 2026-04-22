@@ -6,7 +6,7 @@ import * as github from "@actions/github";
 import { makeOctokit } from "@/github/octokit";
 import { buildExperimentResultsUrl, resolveProjectId } from "@/langfuse/project";
 
-import { buildWorkflowRunUrl } from "./tags";
+import { buildWorkflowRunUrl } from "./metadata";
 import type { ResolvedInputs, ScriptError, ScriptResult } from "./types";
 
 export interface RenderScriptSectionOptions {
@@ -507,8 +507,8 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
 export interface PublishExperimentCommentOptions {
   inputs: ResolvedInputs;
   results: ScriptResult[];
-  /** The final resolved tag set — we read `langfuse.github_job_url` from it. */
-  tags: Record<string, string>;
+  /** The final resolved metadata set — we read `langfuse.github_job_url` from it. */
+  metadata: Record<string, string>;
   /** Override `process.env` in tests. */
   env?: NodeJS.ProcessEnv;
 }
@@ -523,13 +523,13 @@ export interface PublishExperimentCommentOptions {
 export async function publishExperimentComment(
   opts: PublishExperimentCommentOptions,
 ): Promise<void> {
-  const { inputs, results, tags } = opts;
+  const { inputs, results, metadata } = opts;
   const env = opts.env ?? process.env;
 
-  // Prefer the job URL (set by the tag resolver when the API call
+  // Prefer the job URL (set by the metadata resolver when the API call
   // succeeded); fall back to the workflow-run URL so the comment still
   // carries a link even when job-id resolution fails.
-  const jobUrl = tags["langfuse.github_job_url"];
+  const jobUrl = metadata["langfuse.github_job_url"];
   const runUrl = jobUrl ?? buildWorkflowRunUrl(env) ?? undefined;
 
   // One API call resolves the Langfuse project id; `null` means we skip

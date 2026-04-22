@@ -67676,21 +67676,21 @@ async function resolveJobUrl(params) {
     }
 }
 
-;// CONCATENATED MODULE: ./src/tags.ts
+;// CONCATENATED MODULE: ./src/metadata.ts
 
 /**
- * Namespace prepended to every default tag. Makes action-generated metadata
- * unambiguous alongside whatever tags the user adds via
- * `custom_experiment_tags` (which are passed through verbatim).
+ * Namespace prepended to every default metadata key. Makes action-generated
+ * metadata unambiguous alongside whatever the user adds via
+ * `experiment_metadata` (which is passed through verbatim).
  */
-const TAG_PREFIX = "langfuse.";
+const METADATA_PREFIX = "langfuse.";
 /**
- * The complete set of default tags the action emits, in one place. Each
- * resolver returns the string value (with `langfuse.` prefix added
- * automatically) or `null` to skip the tag entirely. Read top-to-bottom to
- * see the full default tag vocabulary.
+ * The complete set of default metadata entries the action emits, in one
+ * place. Each resolver returns the string value (with `langfuse.` prefix
+ * added automatically) or `null` to skip the entry entirely. Read
+ * top-to-bottom to see the full default metadata vocabulary.
  */
-const DEFAULT_TAGS = {
+const DEFAULT_METADATA = {
     git_sha: (env) => env.GITHUB_SHA ?? null,
     branch: (env) => env.GITHUB_REF_NAME ?? null,
     event: (env) => env.GITHUB_EVENT_NAME ?? null,
@@ -67699,35 +67699,35 @@ const DEFAULT_TAGS = {
     github_job_attempt: (env) => env.GITHUB_RUN_ATTEMPT ?? null,
     // `actor` is the person who started *this* attempt — identical to the PR
     // opener on first runs, different when someone re-ran jobs. Covers both
-    // cases in one tag.
+    // cases in one entry.
     actor: (env) => env.GITHUB_TRIGGERING_ACTOR ?? env.GITHUB_ACTOR ?? null,
     pr_url: resolvePrUrl,
-    github_job_url: resolveJobUrlTag,
+    github_job_url: resolveJobUrlMetadata,
 };
 /**
- * The full default tag bag for the current action invocation: env-derived
- * tags + any async-resolved tags (e.g. `langfuse.job_url`) + user-supplied
- * `custom` tags layered on top.
+ * The full default metadata bag for the current action invocation:
+ * env-derived entries + any async-resolved ones (e.g. `langfuse.job_url`) +
+ * user-supplied `custom` metadata layered on top.
  *
- * Custom tags win on key collisions so authors can override anything the
+ * Custom entries win on key collisions so authors can override anything the
  * action would emit automatically. Omit `token` to skip the job-URL lookup
  * (useful in tests).
  */
-async function resolveDefaultTags(options = {}) {
+async function resolveDefaultMetadata(options = {}) {
     const env = options.env ?? process.env;
     const opts = { token: options.token };
-    const resolved = await Promise.all(Object.entries(DEFAULT_TAGS).map(async ([name, resolve]) => [name, await resolve(env, opts)]));
-    const tags = {};
+    const resolved = await Promise.all(Object.entries(DEFAULT_METADATA).map(async ([name, resolve]) => [name, await resolve(env, opts)]));
+    const metadata = {};
     for (const [name, value] of resolved) {
         if (typeof value === "string" && value) {
-            tags[`${TAG_PREFIX}${name}`] = value;
+            metadata[`${METADATA_PREFIX}${name}`] = value;
         }
     }
-    return { ...tags, ...(options.custom ?? {}) };
+    return { ...metadata, ...(options.custom ?? {}) };
 }
 /**
- * Not part of the default tag set — kept as a helper so the PR comment can
- * fall back to the workflow-run URL if the job URL lookup fails (the run
+ * Not part of the default metadata set — kept as a helper so the PR comment
+ * can fall back to the workflow-run URL if the job URL lookup fails (the run
  * page still has all the logs; it's just one click deeper).
  */
 function buildWorkflowRunUrl(env = process.env) {
@@ -67739,8 +67739,8 @@ function buildWorkflowRunUrl(env = process.env) {
     return `${server}/${repo}/actions/runs/${runId}`;
 }
 // ---------------------------------------------------------------------------
-// Resolver helpers — kept below the DEFAULT_TAGS table so the table itself
-// stays scannable.
+// Resolver helpers — kept below the DEFAULT_METADATA table so the table
+// itself stays scannable.
 // ---------------------------------------------------------------------------
 function resolvePrUrl(env) {
     const ref = env.GITHUB_REF ?? "";
@@ -67753,7 +67753,7 @@ function resolvePrUrl(env) {
     const server = env.GITHUB_SERVER_URL ?? "https://github.com";
     return `${server}/${repo}/pull/${prMatch[1]}`;
 }
-async function resolveJobUrlTag(env, opts) {
+async function resolveJobUrlMetadata(env, opts) {
     if (!opts.token)
         return null;
     return resolveJobUrl({
@@ -68162,12 +68162,12 @@ async function postPrComment(opts) {
  * section per `ScriptResult`, and hands the batch to `postPrComment`.
  */
 async function publishExperimentComment(opts) {
-    const { inputs, results, tags } = opts;
+    const { inputs, results, metadata } = opts;
     const env = opts.env ?? process.env;
-    // Prefer the job URL (set by the tag resolver when the API call
+    // Prefer the job URL (set by the metadata resolver when the API call
     // succeeded); fall back to the workflow-run URL so the comment still
     // carries a link even when job-id resolution fails.
-    const jobUrl = tags["langfuse.github_job_url"];
+    const jobUrl = metadata["langfuse.github_job_url"];
     const runUrl = jobUrl ?? buildWorkflowRunUrl(env) ?? undefined;
     // One API call resolves the Langfuse project id; `null` means we skip
     // the Langfuse link but everything else still renders.
@@ -68325,7 +68325,7 @@ async function readResultFile(file) {
  * the user's script can read them without needing context injection.
  */
 function buildEnv(env) {
-    const { inputs, tags } = env;
+    const { inputs, metadata } = env;
     const out = {};
     for (const [k, v] of Object.entries(process.env)) {
         if (typeof v === "string")
@@ -68335,7 +68335,7 @@ function buildEnv(env) {
     out.LANGFUSE_SECRET_KEY = inputs.langfuseSecretKey;
     out.LANGFUSE_HOST = inputs.langfuseBaseUrl;
     out.LANGFUSE_BASEURL = inputs.langfuseBaseUrl;
-    out.LANGFUSE_EXPERIMENT_TAGS = JSON.stringify(tags);
+    out.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(metadata);
     if (inputs.datasetName)
         out.LANGFUSE_DATASET_NAME = inputs.datasetName;
     if (inputs.datasetVersion)
@@ -76085,7 +76085,7 @@ const OptionalTrimmedString = pipe(string(), transform((raw) => raw.trim() || un
  * Lines are trimmed; blank lines and `#` comments are skipped; malformed
  * entries log a warning and are ignored.
  */
-function parseTags(raw) {
+function parseMetadata(raw) {
     const out = {};
     if (!raw)
         return out;
@@ -76095,13 +76095,13 @@ function parseTags(raw) {
             continue;
         const eq = trimmed.indexOf("=");
         if (eq === -1) {
-            core.warning(`Ignoring tag "${trimmed}" — expected key=value.`);
+            core.warning(`Ignoring metadata entry "${trimmed}" — expected key=value.`);
             continue;
         }
         const key = trimmed.slice(0, eq).trim();
         const value = trimmed.slice(eq + 1).trim();
         if (!key) {
-            core.warning(`Ignoring tag with empty key: "${trimmed}".`);
+            core.warning(`Ignoring metadata entry with empty key: "${trimmed}".`);
             continue;
         }
         out[key] = value;
@@ -76120,7 +76120,7 @@ const InputsSchema = object({
     langfuseBaseUrl: stringWithDefault("https://cloud.langfuse.com"),
     datasetName: OptionalTrimmedString,
     datasetVersion: OptionalTrimmedString,
-    customTags: pipe(string(), transform(parseTags)),
+    customMetadata: pipe(string(), transform(parseMetadata)),
     shouldFailOnError: booleanFromString(true),
     shouldCommentOnPr: booleanFromString(true),
     pythonSdkVersion: stringWithDefault("latest"),
@@ -76140,7 +76140,7 @@ function resolveInputs() {
         langfuseBaseUrl: core.getInput("langfuse_base_url"),
         datasetName: core.getInput("dataset_name"),
         datasetVersion: core.getInput("dataset_version"),
-        customTags: core.getInput("custom_experiment_tags"),
+        customMetadata: core.getInput("experiment_metadata"),
         shouldFailOnError: core.getInput("should_fail_on_error"),
         shouldCommentOnPr: core.getInput("should_comment_on_pr"),
         pythonSdkVersion: core.getInput("python_sdk_version"),
@@ -76154,7 +76154,7 @@ function resolveInputs() {
         throw new Error(`Invalid action inputs: ${messages}`);
     }
     const inputs = result.output;
-    core.debug(`Parsed ${Object.keys(inputs.customTags).length} custom tag(s).`);
+    core.debug(`Parsed ${Object.keys(inputs.customMetadata).length} custom metadata entry(ies).`);
     // Mask secrets so they don't appear in logs even if we happen to log them.
     if (inputs.langfuseSecretKey)
         core.setSecret(inputs.langfuseSecretKey);
@@ -76204,11 +76204,11 @@ async function run() {
         jsSdkVersion: inputs.jsSdkVersion,
         shouldSkipSdkInstallation: inputs.shouldSkipSdkInstallation,
     });
-    const tags = await resolveDefaultTags({
+    const metadata = await resolveDefaultMetadata({
         token: inputs.githubToken,
-        custom: inputs.customTags,
+        custom: inputs.customMetadata,
     });
-    const runnerEnv = { inputs, tags };
+    const runnerEnv = { inputs, metadata };
     const results = [];
     for (const script of scripts) {
         core.startGroup(`Running ${script.path}`);
@@ -76231,7 +76231,7 @@ async function run() {
     core.debug(`Any failures: ${anyFailed}`);
     setOutputs(results);
     if (inputs.shouldCommentOnPr) {
-        await publishExperimentComment({ inputs, results, tags });
+        await publishExperimentComment({ inputs, results, metadata });
     }
     if (anyFailed && inputs.shouldFailOnError) {
         const regressions = results.filter((r) => r.error?.isRegression).length;

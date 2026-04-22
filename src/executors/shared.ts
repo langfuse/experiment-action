@@ -6,7 +6,7 @@ import type { ResolvedInputs } from "@/types";
 
 export interface RunnerEnv {
   inputs: ResolvedInputs;
-  tags: Record<string, string>;
+  metadata: Record<string, string>;
 }
 
 export interface StatusFile {
@@ -45,7 +45,7 @@ export async function readResultFile(file: string): Promise<unknown | null> {
  * the user's script can read them without needing context injection.
  */
 export function buildEnv(env: RunnerEnv): Record<string, string> {
-  const { inputs, tags } = env;
+  const { inputs, metadata } = env;
   const out: Record<string, string> = {};
 
   for (const [k, v] of Object.entries(process.env)) {
@@ -56,7 +56,7 @@ export function buildEnv(env: RunnerEnv): Record<string, string> {
   out.LANGFUSE_SECRET_KEY = inputs.langfuseSecretKey;
   out.LANGFUSE_HOST = inputs.langfuseBaseUrl;
   out.LANGFUSE_BASEURL = inputs.langfuseBaseUrl;
-  out.LANGFUSE_EXPERIMENT_TAGS = JSON.stringify(tags);
+  out.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(metadata);
 
   if (inputs.datasetName) out.LANGFUSE_DATASET_NAME = inputs.datasetName;
   if (inputs.datasetVersion) out.LANGFUSE_DATASET_VERSION = inputs.datasetVersion;
