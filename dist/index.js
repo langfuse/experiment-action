@@ -68057,10 +68057,10 @@ function parseSectionOverview(body) {
             continue;
         const displayName = summaryText.slice(firstSpace + 1);
         const scriptLabelText = scriptLabel(scriptPath, external_node_path_namespaceObject.basename(scriptPath));
-        const status = sectionBody.includes("[!WARNING]")
-            ? "❌ Regression"
-            : sectionBody.includes("[!CAUTION]")
-                ? "❌ Error"
+        const status = sectionBody.includes("> **Run failed —")
+            ? "❌ Error"
+            : sectionBody.match(/^> \*\*.+:\*\*/m)
+                ? "❌ Regression"
                 : "✅ Pass";
         const actionMeta = sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1];
         const attrs = new Map((actionMeta ?? "")
@@ -68143,9 +68143,9 @@ function renderItemsTable(itemResults) {
  */
 function renderErrorCallout(err) {
     if (err.isRegression) {
-        return `> [!WARNING]\n> **${err.name}:** ${err.message}`;
+        return `> **${err.name}:** ${err.message}`;
     }
-    return `> [!CAUTION]\n> **Run failed — ${err.name}:** ${err.message}`;
+    return `> **Run failed — ${err.name}:** ${err.message}`;
 }
 /**
  * Render one `ScriptResult` as a complete PR-comment section, wrapped in

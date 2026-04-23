@@ -194,10 +194,10 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
 
     const displayName = summaryText.slice(firstSpace + 1);
     const scriptLabelText = scriptLabel(scriptPath, path.basename(scriptPath));
-    const status = sectionBody.includes("[!WARNING]")
-      ? "❌ Regression"
-      : sectionBody.includes("[!CAUTION]")
-        ? "❌ Error"
+    const status = sectionBody.includes("> **Run failed —")
+      ? "❌ Error"
+      : sectionBody.match(/^> \*\*.+:\*\*/m)
+        ? "❌ Regression"
         : "✅ Pass";
     const actionMeta = sectionBody.match(
       /<!-- langfuse-experiment-action:actions ([^>]+) -->/,
@@ -300,9 +300,9 @@ function renderItemsTable(itemResults: NormalizedExperimentItemResult[]): string
  */
 function renderErrorCallout(err: ScriptError): string {
   if (err.isRegression) {
-    return `> [!WARNING]\n> **${err.name}:** ${err.message}`;
+    return `> **${err.name}:** ${err.message}`;
   }
-  return `> [!CAUTION]\n> **Run failed — ${err.name}:** ${err.message}`;
+  return `> **Run failed — ${err.name}:** ${err.message}`;
 }
 
 /**

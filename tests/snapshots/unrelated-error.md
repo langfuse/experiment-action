@@ -16,7 +16,6 @@
 
 Script: `tmp/broken.py`
 
-> [!CAUTION]
 > **Run failed — ValueError:** bad input on line 17
 
 </details>

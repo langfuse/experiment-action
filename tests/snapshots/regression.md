@@ -16,7 +16,6 @@
 
 Script: `tmp/reg.py`
 
-> [!WARNING]
 > **RegressionError:** accuracy dropped to 0.5
 
 | Score | Value |
