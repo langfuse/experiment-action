@@ -8,6 +8,7 @@ import {
   type NormalizedExperimentItemResult,
   type NormalizedExperimentResult,
 } from "@/experiment-result";
+import { errorMessage, errorStatus } from "@/github/errors";
 import { makeOctokit } from "@/github/octokit";
 import { buildDatasetItemUrl } from "@/langfuse/project";
 
@@ -639,11 +640,8 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
       core.info(`Posted run ${runId} comment on PR #${pr.number}.`);
     }
   } catch (err) {
-    const status =
-      typeof (err as { status?: unknown }).status === "number"
-        ? (err as { status: number }).status
-        : undefined;
-    const msg = err instanceof Error ? err.message : String(err);
+    const status = errorStatus(err);
+    const msg = errorMessage(err);
 
     const looksLikeRateLimit = /rate limit/i.test(msg);
     const hint =

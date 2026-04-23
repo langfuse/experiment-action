@@ -1,6 +1,7 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 
+import { errorMessage, errorStatus } from "./errors";
 import { makeOctokit } from "./octokit";
 
 /**
@@ -62,11 +63,8 @@ export async function resolveJobUrl(params: {
     );
     return null;
   } catch (err) {
-    const status =
-      typeof (err as { status?: unknown }).status === "number"
-        ? (err as { status: number }).status
-        : undefined;
-    const msg = err instanceof Error ? err.message : String(err);
+    const status = errorStatus(err);
+    const msg = errorMessage(err);
 
     if (status === 403) {
       core.warning(

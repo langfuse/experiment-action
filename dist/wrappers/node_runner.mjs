@@ -25,6 +25,17 @@ async function writeStatus(statusFile, payload) {
   await writeFile(statusFile, JSON.stringify(payload), "utf8");
 }
 
+async function writeErrorStatus(statusFile, err, overrides = {}) {
+  const e = serializeError(err);
+  await writeStatus(statusFile, {
+    status: "error",
+    error_name: overrides.error_name ?? e.name,
+    message: overrides.message ?? e.message,
+    is_regression: overrides.is_regression ?? e.isRegression,
+    traceback: overrides.traceback ?? e.stack,
+  });
+}
+
 function serializeError(err) {
   if (err instanceof Error) {
     const name = err.name || err.constructor?.name || "Error";
@@ -55,21 +66,13 @@ async function main() {
   try {
     mod = await import(pathToFileURL(absScript).href);
   } catch (err) {
-    const e = serializeError(err);
-    await writeStatus(statusFile, {
-      status: "error",
-      error_name: e.name,
-      message: e.message,
-      is_regression: e.isRegression,
-      traceback: e.stack,
-    });
+    await writeErrorStatus(statusFile, err);
     return;
   }
 
   const experimentFn = mod.experiment ?? mod.default?.experiment ?? mod.default;
   if (typeof experimentFn !== "function") {
-    await writeStatus(statusFile, {
-      status: "error",
+    await writeErrorStatus(statusFile, new Error("ContractError"), {
       error_name: "ContractError",
       message:
         "Script does not export a callable `experiment` function. " +
@@ -93,26 +96,17 @@ async function main() {
         /* best-effort */
       }
     }
-    await writeStatus(statusFile, {
-      status: "error",
-      error_name: e.name,
-      message: e.message,
-      is_regression: e.isRegression,
-      traceback: e.stack,
-    });
+    await writeErrorStatus(statusFile, err);
     return;
   }
 
   try {
     await writeFile(resultFile, JSON.stringify(result ?? null), "utf8");
   } catch (err) {
-    const e = serializeError(err);
-    await writeStatus(statusFile, {
-      status: "error",
+    await writeErrorStatus(statusFile, err, {
       error_name: "SerializationError",
-      message: `Could not serialize experiment result: ${e.message}`,
+      message: `Could not serialize experiment result: ${serializeError(err).message}`,
       is_regression: false,
-      traceback: e.stack,
     });
     return;
   }
@@ -125,14 +119,7 @@ main().catch(async (err) => {
   try {
     const statusFile = process.argv[4];
     if (statusFile) {
-      const e = serializeError(err);
-      await writeStatus(statusFile, {
-        status: "error",
-        error_name: e.name,
-        message: e.message,
-        is_regression: e.isRegression,
-        traceback: e.stack,
-      });
+      await writeErrorStatus(statusFile, err);
     }
   } catch {
     /* ignore */

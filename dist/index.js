@@ -67700,6 +67700,16 @@ function resolveLangfuseExperimentUrl(params) {
     return null;
 }
 
+;// CONCATENATED MODULE: ./src/github/errors.ts
+function errorStatus(err) {
+    return typeof err.status === "number"
+        ? err.status
+        : undefined;
+}
+function errorMessage(err) {
+    return err instanceof Error ? err.message : String(err);
+}
+
 // EXTERNAL MODULE: ./node_modules/.pnpm/@octokit+plugin-retry@6.1.0_@octokit+core@5.2.2/node_modules/@octokit/plugin-retry/dist-node/index.js
 var dist_node = __nccwpck_require__(9195);
 // EXTERNAL MODULE: ./node_modules/.pnpm/@octokit+plugin-throttling@8.2.0_@octokit+core@5.2.2/node_modules/@octokit/plugin-throttling/dist-node/index.js
@@ -67741,6 +67751,7 @@ function makeOctokit(token) {
 }
 
 ;// CONCATENATED MODULE: ./src/github/job-url.ts
+
 
 
 
@@ -67794,10 +67805,8 @@ async function resolveJobUrl(params) {
         return null;
     }
     catch (err) {
-        const status = typeof err.status === "number"
-            ? err.status
-            : undefined;
-        const msg = err instanceof Error ? err.message : String(err);
+        const status = errorStatus(err);
+        const msg = errorMessage(err);
         if (status === 403) {
             core.warning("Job-URL lookup was denied (HTTP 403). Grant `actions: read` to the " +
                 "workflow (or the specific job) so the PR comment can link directly " +
@@ -67931,6 +67940,7 @@ function normalizeRepoPath(scriptPath, workspace) {
 }
 
 ;// CONCATENATED MODULE: ./src/comment.ts
+
 
 
 
@@ -68447,10 +68457,8 @@ async function postPrComment(opts) {
         }
     }
     catch (err) {
-        const status = typeof err.status === "number"
-            ? err.status
-            : undefined;
-        const msg = err instanceof Error ? err.message : String(err);
+        const status = errorStatus(err);
+        const msg = errorMessage(err);
         const looksLikeRateLimit = /rate limit/i.test(msg);
         const hint = status === 403 && !looksLikeRateLimit
             ? " — check that the workflow grants `pull-requests: write`."
@@ -68591,6 +68599,9 @@ class ExperimentScript {
 ;// CONCATENATED MODULE: ./src/executors/shared.ts
 
 
+
+
+
 async function readStatusFile(file) {
     try {
         const raw = await promises_namespaceObject.readFile(file, "utf8");
@@ -68613,6 +68624,72 @@ async function readResultFile(file) {
     catch {
         return null;
     }
+}
+function buildBaseRunnerEnv(env) {
+    const inherited = Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
+    const runnerEnv = {
+        ...inherited,
+        LANGFUSE_PUBLIC_KEY: env.inputs.langfusePublicKey,
+        LANGFUSE_SECRET_KEY: env.inputs.langfuseSecretKey,
+        LANGFUSE_HOST: env.inputs.langfuseBaseUrl,
+        LANGFUSE_BASEURL: env.inputs.langfuseBaseUrl,
+        LANGFUSE_EXPERIMENT_METADATA: JSON.stringify(env.metadata),
+    };
+    if (env.inputs.datasetName) {
+        runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
+    }
+    if (env.inputs.datasetVersion) {
+        runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
+    }
+    return runnerEnv;
+}
+function toScriptError(status, execError, runtimeLabel) {
+    if (!status && execError) {
+        return {
+            name: "RunnerError",
+            message: `${runtimeLabel} runner crashed before writing status: ${execError.message}`,
+            isRegression: false,
+        };
+    }
+    if (status?.status === "error") {
+        return {
+            name: status.error_name ?? "Error",
+            message: status.message ?? "",
+            isRegression: Boolean(status.is_regression),
+            details: status.traceback,
+        };
+    }
+    return null;
+}
+async function executeWrapper(opts) {
+    const { scriptPath, scriptName, runtime, command, wrapperPath, runnerEnv, runtimeLabel } = opts;
+    const tmpDir = await promises_namespaceObject.mkdtemp(external_node_path_namespaceObject.join(external_node_os_namespaceObject.tmpdir(), "langfuse-run-"));
+    const resultFile = external_node_path_namespaceObject.join(tmpDir, "result.json");
+    const statusFile = external_node_path_namespaceObject.join(tmpDir, "status.json");
+    core.debug(`${runtimeLabel}Script.run path=${scriptPath} tmpDir=${tmpDir}`);
+    core.debug(`${runtimeLabel} wrapper: ${wrapperPath}`);
+    const started = Date.now();
+    let execError = null;
+    try {
+        await exec.exec(command, [wrapperPath, scriptPath, resultFile, statusFile], {
+            env: runnerEnv,
+        });
+    }
+    catch (err) {
+        execError = err instanceof Error ? err : new Error(String(err));
+        core.debug(`${runtimeLabel} runner exec threw: ${execError.message}`);
+    }
+    const durationMs = Date.now() - started;
+    const status = await readStatusFile(statusFile);
+    const result = await readResultFile(resultFile);
+    return {
+        scriptPath,
+        scriptName,
+        runtime,
+        result,
+        error: toScriptError(status, execError, runtimeLabel),
+        durationMs,
+    };
 }
 
 ;// CONCATENATED MODULE: ./src/executors/node.ts
@@ -68643,19 +68720,9 @@ class NodeScript extends ExperimentScript {
         this.nodeModulesDir = nodeModulesDir;
     }
     async run(env) {
-        const tmpDir = await promises_namespaceObject.mkdtemp(external_node_path_namespaceObject.join(external_node_os_namespaceObject.tmpdir(), "langfuse-run-"));
-        const resultFile = external_node_path_namespaceObject.join(tmpDir, "result.json");
-        const statusFile = external_node_path_namespaceObject.join(tmpDir, "status.json");
-        core.debug(`NodeScript.run path=${this.path} tmpDir=${tmpDir}`);
         core.debug(`Node wrapper: ${WRAPPER_PATH}, node_modules: ${this.nodeModulesDir}`);
-        const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
         const runnerEnv = {
-            ...baseEnv,
-            LANGFUSE_PUBLIC_KEY: env.inputs.langfusePublicKey,
-            LANGFUSE_SECRET_KEY: env.inputs.langfuseSecretKey,
-            LANGFUSE_HOST: env.inputs.langfuseBaseUrl,
-            LANGFUSE_BASEURL: env.inputs.langfuseBaseUrl,
-            LANGFUSE_EXPERIMENT_METADATA: JSON.stringify(env.metadata),
+            ...buildBaseRunnerEnv(env),
             // CJS `require` honors NODE_PATH, so this keeps those callers
             // working. ESM `import` ignores it — the wrapper registers a
             // resolver (see node_resolver.mjs) that reads the install dir
@@ -68664,51 +68731,16 @@ class NodeScript extends ExperimentScript {
             NODE_PATH: this.nodeModulesDir,
             LANGFUSE_ACTION_INSTALL_DIR: external_node_path_namespaceObject.dirname(this.nodeModulesDir),
         };
-        if (env.inputs.datasetName) {
-            runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
-        }
-        if (env.inputs.datasetVersion) {
-            runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
-        }
         const tsxBin = external_node_path_namespaceObject.join(this.nodeModulesDir, ".bin", "tsx");
-        const started = Date.now();
-        let execError = null;
-        try {
-            await exec.exec(tsxBin, [WRAPPER_PATH, this.path, resultFile, statusFile], {
-                env: runnerEnv,
-            });
-        }
-        catch (err) {
-            execError = err instanceof Error ? err : new Error(String(err));
-            core.debug(`Node runner exec threw: ${execError.message}`);
-        }
-        const durationMs = Date.now() - started;
-        const status = await readStatusFile(statusFile);
-        const result = await readResultFile(resultFile);
-        let error = null;
-        if (!status && execError) {
-            error = {
-                name: "RunnerError",
-                message: `Node runner crashed before writing status: ${execError.message}`,
-                isRegression: false,
-            };
-        }
-        else if (status?.status === "error") {
-            error = {
-                name: status.error_name ?? "Error",
-                message: status.message ?? "",
-                isRegression: Boolean(status.is_regression),
-                details: status.traceback,
-            };
-        }
-        return {
+        return executeWrapper({
             scriptPath: this.path,
             scriptName: this.name,
             runtime: this.runtime,
-            result,
-            error,
-            durationMs,
-        };
+            command: tsxBin,
+            wrapperPath: WRAPPER_PATH,
+            runnerEnv,
+            runtimeLabel: "Node",
+        });
     }
 }
 async function readJsSdkVersion(nodeModulesDir) {
@@ -68783,68 +68815,20 @@ async function ensureNodeSdk(sdkVersion, skipInstallation) {
 
 
 
-
-
 const python_WRAPPER_PATH = external_node_path_namespaceObject.join(__dirname, "wrappers", "python_runner.py");
 const PY_PACKAGE = "langfuse";
 class PythonScript extends ExperimentScript {
     runtime = "python";
     async run(env) {
-        const tmpDir = await promises_namespaceObject.mkdtemp(external_node_path_namespaceObject.join(external_node_os_namespaceObject.tmpdir(), "langfuse-run-"));
-        const resultFile = external_node_path_namespaceObject.join(tmpDir, "result.json");
-        const statusFile = external_node_path_namespaceObject.join(tmpDir, "status.json");
-        core.debug(`PythonScript.run path=${this.path} tmpDir=${tmpDir}`);
-        core.debug(`Python wrapper: ${python_WRAPPER_PATH}`);
-        const runnerEnv = Object.fromEntries(Object.entries(process.env).filter(([, value]) => typeof value === "string"));
-        runnerEnv.LANGFUSE_PUBLIC_KEY = env.inputs.langfusePublicKey;
-        runnerEnv.LANGFUSE_SECRET_KEY = env.inputs.langfuseSecretKey;
-        runnerEnv.LANGFUSE_HOST = env.inputs.langfuseBaseUrl;
-        runnerEnv.LANGFUSE_BASEURL = env.inputs.langfuseBaseUrl;
-        runnerEnv.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(env.metadata);
-        if (env.inputs.datasetName) {
-            runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
-        }
-        if (env.inputs.datasetVersion) {
-            runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
-        }
-        const started = Date.now();
-        let execError = null;
-        try {
-            await exec.exec("python", [python_WRAPPER_PATH, this.path, resultFile, statusFile], {
-                env: runnerEnv,
-            });
-        }
-        catch (err) {
-            execError = err instanceof Error ? err : new Error(String(err));
-            core.debug(`Python runner exec threw: ${execError.message}`);
-        }
-        const durationMs = Date.now() - started;
-        const status = await readStatusFile(statusFile);
-        const result = await readResultFile(resultFile);
-        let error = null;
-        if (!status && execError) {
-            error = {
-                name: "RunnerError",
-                message: `Python runner crashed before writing status: ${execError.message}`,
-                isRegression: false,
-            };
-        }
-        else if (status?.status === "error") {
-            error = {
-                name: status.error_name ?? "Error",
-                message: status.message ?? "",
-                isRegression: Boolean(status.is_regression),
-                details: status.traceback,
-            };
-        }
-        return {
+        return executeWrapper({
             scriptPath: this.path,
             scriptName: this.name,
             runtime: this.runtime,
-            result,
-            error,
-            durationMs,
-        };
+            command: "python",
+            wrapperPath: python_WRAPPER_PATH,
+            runnerEnv: buildBaseRunnerEnv(env),
+            runtimeLabel: "Python",
+        });
     }
 }
 /**

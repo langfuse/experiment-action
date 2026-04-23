@@ -1,14 +1,12 @@
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 
-import type { RawScriptResult, ScriptError } from "@/types";
+import type { RawScriptResult } from "@/types";
 
 import { ExperimentScript } from "./script";
-import { readResultFile, readStatusFile, type RunnerEnv } from "./shared";
+import { buildBaseRunnerEnv, executeWrapper, type RunnerEnv } from "./shared";
 
 const WRAPPER_PATH = path.join(__dirname, "wrappers", "python_runner.py");
 const PY_PACKAGE = "langfuse";
@@ -17,67 +15,15 @@ export class PythonScript extends ExperimentScript {
   readonly runtime = "python" as const;
 
   async run(env: RunnerEnv): Promise<RawScriptResult> {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "langfuse-run-"));
-    const resultFile = path.join(tmpDir, "result.json");
-    const statusFile = path.join(tmpDir, "status.json");
-
-    core.debug(`PythonScript.run path=${this.path} tmpDir=${tmpDir}`);
-    core.debug(`Python wrapper: ${WRAPPER_PATH}`);
-
-    const runnerEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([, value]) => typeof value === "string"),
-    ) as Record<string, string>;
-    runnerEnv.LANGFUSE_PUBLIC_KEY = env.inputs.langfusePublicKey;
-    runnerEnv.LANGFUSE_SECRET_KEY = env.inputs.langfuseSecretKey;
-    runnerEnv.LANGFUSE_HOST = env.inputs.langfuseBaseUrl;
-    runnerEnv.LANGFUSE_BASEURL = env.inputs.langfuseBaseUrl;
-    runnerEnv.LANGFUSE_EXPERIMENT_METADATA = JSON.stringify(env.metadata);
-    if (env.inputs.datasetName) {
-      runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
-    }
-    if (env.inputs.datasetVersion) {
-      runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
-    }
-
-    const started = Date.now();
-    let execError: Error | null = null;
-    try {
-      await exec.exec("python", [WRAPPER_PATH, this.path, resultFile, statusFile], {
-        env: runnerEnv,
-      });
-    } catch (err) {
-      execError = err instanceof Error ? err : new Error(String(err));
-      core.debug(`Python runner exec threw: ${execError.message}`);
-    }
-    const durationMs = Date.now() - started;
-
-    const status = await readStatusFile(statusFile);
-    const result = await readResultFile(resultFile);
-
-    let error: ScriptError | null = null;
-    if (!status && execError) {
-      error = {
-        name: "RunnerError",
-        message: `Python runner crashed before writing status: ${execError.message}`,
-        isRegression: false,
-      };
-    } else if (status?.status === "error") {
-      error = {
-        name: status.error_name ?? "Error",
-        message: status.message ?? "",
-        isRegression: Boolean(status.is_regression),
-        details: status.traceback,
-      };
-    }
-
-    return {
+    return executeWrapper({
       scriptPath: this.path,
       scriptName: this.name,
       runtime: this.runtime,
-      result,
-      error,
-      durationMs,
-    };
+      command: "python",
+      wrapperPath: WRAPPER_PATH,
+      runnerEnv: buildBaseRunnerEnv(env),
+      runtimeLabel: "Python",
+    });
   }
 }
 

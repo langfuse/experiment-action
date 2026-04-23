@@ -5,10 +5,10 @@ import * as path from "node:path";
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 
-import type { RawScriptResult, ScriptError } from "@/types";
+import type { RawScriptResult } from "@/types";
 
 import { ExperimentScript } from "./script";
-import { readResultFile, readStatusFile, type RunnerEnv } from "./shared";
+import { buildBaseRunnerEnv, executeWrapper, type RunnerEnv } from "./shared";
 
 const WRAPPER_PATH = path.join(__dirname, "wrappers", "node_runner.mjs");
 
@@ -36,24 +36,10 @@ export class NodeScript extends ExperimentScript {
   }
 
   async run(env: RunnerEnv): Promise<RawScriptResult> {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "langfuse-run-"));
-    const resultFile = path.join(tmpDir, "result.json");
-    const statusFile = path.join(tmpDir, "status.json");
-
-    core.debug(`NodeScript.run path=${this.path} tmpDir=${tmpDir}`);
     core.debug(`Node wrapper: ${WRAPPER_PATH}, node_modules: ${this.nodeModulesDir}`);
 
-    const baseEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([, value]) => typeof value === "string"),
-    ) as Record<string, string>;
-
     const runnerEnv: Record<string, string> = {
-      ...baseEnv,
-      LANGFUSE_PUBLIC_KEY: env.inputs.langfusePublicKey,
-      LANGFUSE_SECRET_KEY: env.inputs.langfuseSecretKey,
-      LANGFUSE_HOST: env.inputs.langfuseBaseUrl,
-      LANGFUSE_BASEURL: env.inputs.langfuseBaseUrl,
-      LANGFUSE_EXPERIMENT_METADATA: JSON.stringify(env.metadata),
+      ...buildBaseRunnerEnv(env),
       // CJS `require` honors NODE_PATH, so this keeps those callers
       // working. ESM `import` ignores it — the wrapper registers a
       // resolver (see node_resolver.mjs) that reads the install dir
@@ -62,54 +48,17 @@ export class NodeScript extends ExperimentScript {
       NODE_PATH: this.nodeModulesDir,
       LANGFUSE_ACTION_INSTALL_DIR: path.dirname(this.nodeModulesDir),
     };
-    if (env.inputs.datasetName) {
-      runnerEnv.LANGFUSE_DATASET_NAME = env.inputs.datasetName;
-    }
-    if (env.inputs.datasetVersion) {
-      runnerEnv.LANGFUSE_DATASET_VERSION = env.inputs.datasetVersion;
-    }
 
     const tsxBin = path.join(this.nodeModulesDir, ".bin", "tsx");
-
-    const started = Date.now();
-    let execError: Error | null = null;
-    try {
-      await exec.exec(tsxBin, [WRAPPER_PATH, this.path, resultFile, statusFile], {
-        env: runnerEnv,
-      });
-    } catch (err) {
-      execError = err instanceof Error ? err : new Error(String(err));
-      core.debug(`Node runner exec threw: ${execError.message}`);
-    }
-    const durationMs = Date.now() - started;
-
-    const status = await readStatusFile(statusFile);
-    const result = await readResultFile(resultFile);
-
-    let error: ScriptError | null = null;
-    if (!status && execError) {
-      error = {
-        name: "RunnerError",
-        message: `Node runner crashed before writing status: ${execError.message}`,
-        isRegression: false,
-      };
-    } else if (status?.status === "error") {
-      error = {
-        name: status.error_name ?? "Error",
-        message: status.message ?? "",
-        isRegression: Boolean(status.is_regression),
-        details: status.traceback,
-      };
-    }
-
-    return {
+    return executeWrapper({
       scriptPath: this.path,
       scriptName: this.name,
       runtime: this.runtime,
-      result,
-      error,
-      durationMs,
-    };
+      command: tsxBin,
+      wrapperPath: WRAPPER_PATH,
+      runnerEnv,
+      runtimeLabel: "Node",
+    });
   }
 }
 
