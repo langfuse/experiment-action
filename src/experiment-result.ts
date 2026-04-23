@@ -143,6 +143,7 @@ export function resolveLangfuseExperimentUrl(params: {
 }): string | null {
   const { result, baseUrl, projectId } = params;
   if (!result) return null;
+  if (!result.datasetRunId) return null;
 
   if (baseUrl && projectId && typeof result.experimentId === "string" && result.experimentId) {
     return buildExperimentResultsUrl({

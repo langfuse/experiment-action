@@ -5,6 +5,8 @@ pure string-transform task (no LLM → fully reproducible), and ships both a
 per-item evaluator and a run-level evaluator.
 """
 
+import os
+
 from langfuse import Evaluation, get_client
 
 
@@ -16,7 +18,8 @@ LOCAL_DATA = [
 
 
 def uppercase_task(*, item, **kwargs):
-    return item["input"].upper()
+    value = item["input"] if isinstance(item, dict) else item.input
+    return value.upper()
 
 
 def exact_match(*, output, expected_output, **kwargs):
@@ -44,6 +47,17 @@ def avg_accuracy(*, item_results, **kwargs):
 
 def experiment():
     langfuse = get_client()
+    dataset_name = os.getenv("LANGFUSE_DATASET_NAME")
+    if dataset_name:
+        dataset = langfuse.get_dataset(dataset_name)
+        return dataset.run_experiment(
+            name="Uppercase (py)",
+            description="Deterministic string-transform task; no LLM involved.",
+            task=uppercase_task,
+            evaluators=[exact_match],
+            run_evaluators=[avg_accuracy],
+        )
+
     return langfuse.run_experiment(
         name="Uppercase (py)",
         description="Deterministic string-transform task; no LLM involved.",

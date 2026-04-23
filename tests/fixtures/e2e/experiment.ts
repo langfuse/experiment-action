@@ -20,7 +20,7 @@ const LOCAL_DATA: ItemInput[] = [
   { input: "langfuse", expectedOutput: "LANGFUSE" },
 ];
 
-const uppercaseTask = async ({ input }: { input: string }) => String(input).toUpperCase();
+const uppercaseTask = async (item: { input?: unknown }) => String(item.input).toUpperCase();
 
 const exactMatch = async ({
   output,
@@ -61,6 +61,18 @@ export async function experiment() {
   otelSdk.start();
   try {
     const langfuse = new LangfuseClient();
+    const datasetName = process.env.LANGFUSE_DATASET_NAME;
+    if (datasetName) {
+      const dataset = await langfuse.dataset.get(datasetName);
+      return await dataset.runExperiment({
+        name: "Uppercase (ts)",
+        description: "Deterministic string-transform task; no LLM involved.",
+        task: uppercaseTask,
+        evaluators: [exactMatch],
+        runEvaluators: [avgAccuracy],
+      });
+    }
+
     return await langfuse.experiment.run({
       name: "Uppercase (ts)",
       description: "Deterministic string-transform task; no LLM involved.",

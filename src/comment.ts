@@ -127,32 +127,47 @@ interface ParsedSectionOverview {
   status: string;
   runUrl?: string;
   langfuseUrl?: string;
+  localDataset?: boolean;
 }
 
-function renderActionLinks(runUrl?: string, langfuseUrl?: string): string[] {
+function renderActionLinks(
+  runUrl?: string,
+  langfuseUrl?: string,
+  localDataset?: boolean,
+): string[] {
   const actions: string[] = [];
   if (runUrl) actions.push(`[View GitHub Action Run](${runUrl})`);
   if (langfuseUrl) actions.push(`[View in Langfuse](${langfuseUrl})`);
+  if (localDataset) actions.push("Local dataset");
   return actions;
 }
 
-function renderActionMetadata(runUrl?: string, langfuseUrl?: string): string | null {
+function renderActionMetadata(
+  runUrl?: string,
+  langfuseUrl?: string,
+  localDataset?: boolean,
+): string | null {
   const attrs: string[] = [];
   if (runUrl) attrs.push(`run=${encodeURIComponent(runUrl)}`);
   if (langfuseUrl) attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
+  if (localDataset) attrs.push("local_dataset=true");
   return attrs.length > 0 ? attrs.join(" ") : null;
 }
 
 function renderSectionStartMarker(
   scriptPath: string,
-  opts: { runUrl?: string; langfuseUrl?: string } = {},
+  opts: { runUrl?: string; langfuseUrl?: string; localDataset?: boolean } = {},
 ): string {
   const { start } = sectionMarkers(scriptPath);
-  const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl);
+  const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl, opts.localDataset);
   return `${start}${attrs ? ` ${attrs}` : ""} -->`;
 }
 
-function parseActionAttributes(raw?: string): { runUrl?: string; langfuseUrl?: string } {
+function parseActionAttributes(raw?: string): {
+  runUrl?: string;
+  langfuseUrl?: string;
+  localDataset?: boolean;
+} {
   const attrs = new Map(
     (raw ?? "")
       .split(/\s+/)
@@ -166,7 +181,11 @@ function parseActionAttributes(raw?: string): { runUrl?: string; langfuseUrl?: s
   const langfuseUrl = attrs.get("langfuse")
     ? decodeURIComponent(attrs.get("langfuse") ?? "")
     : undefined;
-  return { runUrl, langfuseUrl };
+  return {
+    runUrl,
+    langfuseUrl,
+    localDataset: attrs.get("local_dataset") === "true",
+  };
 }
 
 function renderOverviewTable(metas: ParsedSectionOverview[]): string {
@@ -184,7 +203,7 @@ function renderOverviewTable(metas: ParsedSectionOverview[]): string {
     return [
       experiment,
       cell(meta.status, 20),
-      renderActionLinks(meta.runUrl, meta.langfuseUrl).join(" · ") || "—",
+      renderActionLinks(meta.runUrl, meta.langfuseUrl, meta.localDataset).join(" · ") || "—",
     ];
   });
 
@@ -243,6 +262,7 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
     );
     const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
     const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
+    const localDataset = startAttrs.localDataset ?? legacyActionMeta.localDataset;
 
     sections.push({
       scriptPath,
@@ -251,6 +271,7 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
       status,
       runUrl,
       langfuseUrl,
+      localDataset,
     });
   }
 
@@ -354,6 +375,7 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
   const { end } = sectionMarkers(scriptResult.scriptPath);
   const normalized = scriptResult.normalizedResult;
   const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
+  const localDataset = Boolean(normalized && !normalized.datasetRunId);
   const failed = scriptResult.error !== null;
   const displayName =
     (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
@@ -363,7 +385,7 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
     displayName,
   });
   const lines: string[] = [
-    renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl }),
+    renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl, localDataset }),
     failed
       ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
       : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
@@ -376,6 +398,8 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
   }
 
   if (normalized && normalized.runEvaluations.length > 0) {
+    lines.push("<br>");
+    lines.push("");
     lines.push(renderScoresTable(normalized.runEvaluations));
     lines.push("");
   }
@@ -413,7 +437,6 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
   }
 
   lines.push("</details>");
-  lines.push("<br>");
   lines.push(end);
   return `${lines.join("\n").trimEnd()}\n`;
 }

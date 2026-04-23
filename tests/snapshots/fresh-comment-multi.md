@@ -5,16 +5,18 @@
 <!-- langfuse-experiment-action:overview:start -->
 | Experiment | Status | Actions |
 | --- | --- | --- |
-| Uppercase task | ✅ Pass | — |
-| Mixed dir (node) | ✅ Pass | — |
+| Uppercase task | ✅ Pass | Local dataset |
+| Mixed dir (node) | ✅ Pass | Local dataset |
 <!-- langfuse-experiment-action:overview:end -->
 
 <!-- langfuse-experiment-action:details:start -->
 **Details**
 <!-- langfuse-experiment-action:details:end -->
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py local_dataset=true -->
 <details><summary>✅ Uppercase task</summary>
+
+<br>
 
 | Score | Value |
 | --- | --- |
@@ -30,11 +32,12 @@
 </details>
 
 </details>
-<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fexperiment.py -->
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Fmixed%2Fexp_node.ts -->
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Fmixed%2Fexp_node.ts local_dataset=true -->
 <details><summary>✅ Mixed dir (node)</summary>
+
+<br>
 
 | Score | Value |
 | --- | --- |
@@ -49,5 +52,4 @@
 </details>
 
 </details>
-<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fmixed%2Fexp_node.ts -->

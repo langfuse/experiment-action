@@ -65,6 +65,27 @@ const pyPassingResult: ScriptResult = scriptResultFromRaw({
   durationMs: 4500,
 });
 
+const pyDatasetPassingResult: ScriptResult = scriptResultFromRaw({
+  scriptPath: "/tmp/experiment.py",
+  scriptName: "experiment.py",
+  runtime: "python",
+  result: {
+    name: "Uppercase task",
+    experiment_id: "0f212f9182320769",
+    dataset_run_id: "run_123",
+    run_evaluations: [{ name: "avg_accuracy", value: 1 }],
+    item_results: [
+      {
+        item: { input: "hello", expected_output: "HELLO" },
+        output: "HELLO",
+        evaluations: [{ name: "exact_match", value: 1 }],
+      },
+    ],
+  },
+  error: null,
+  durationMs: 4500,
+});
+
 // NOTE: mirrors what the JS SDK actually returns — no top-level `name`
 // field; just `runName` which is `"<name> - <ISO timestamp>"`. The
 // renderer has to recover the user-provided name from that.
@@ -125,12 +146,12 @@ const unrelatedError: ScriptResult = scriptResultFromRaw({
 });
 
 describe("renderScriptSection snapshots", () => {
-  it("passing experiment (includes Langfuse link when experiment id + project id are present)", async () => {
+  it("passing experiment (includes Langfuse link for dataset-backed runs)", async () => {
     const body = renderFullCommentSnapshot(
       {
-        ...pyPassingResult,
+        ...pyDatasetPassingResult,
         langfuseExperimentUrl: resolveLangfuseExperimentUrl({
-          result: pyPassingResult.normalizedResult,
+          result: pyDatasetPassingResult.normalizedResult,
           baseUrl: "http://localhost:3000",
           projectId: "7a88fb47-b4e2-43b8-a06c-a5ce950dc53a",
         }),
@@ -148,12 +169,13 @@ describe("renderScriptSection snapshots", () => {
     await expect(body).toMatchFileSnapshot(snap("passing.md"));
   });
 
-  it("omits the Langfuse link when project id is missing", () => {
+  it("omits the Langfuse link and labels local dataset usage for local-data runs", () => {
     const body = renderFullCommentSnapshot(pyPassingResult, {
       runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
       scriptUrl: "https://github.com/owner/repo/blob/abc1234/tmp/experiment.py",
     });
-    expect(body).not.toContain("View in Langfuse");
+    expect(body).not.toContain("[View in Langfuse](");
+    expect(body).toContain("Local dataset");
   });
 
   it("regression with a captured result (scores + items still rendered)", async () => {

@@ -30,6 +30,7 @@ describe("setOutputs", () => {
       result: {
         name: "Uppercase task",
         experiment_id: "exp_123",
+        dataset_run_id: "run_1",
         run_evaluations: [{ name: "avg_accuracy", value: 1, data_type: "NUMERIC" }],
         item_results: [
           {
@@ -81,6 +82,7 @@ describe("setOutputs", () => {
           error: null,
           experiment_result: {
             experiment_id: "exp_123",
+            dataset_run_id: "run_1",
             run_name: "Uppercase task",
             run_evaluations: [{ name: "avg_accuracy", value: 1, data_type: "NUMERIC" }],
             item_results: [
@@ -123,6 +125,7 @@ describe("setOutputs", () => {
       },
       result: {
         experimentId: "exp_456",
+        datasetRunId: "run_456",
         runName: "Uppercase task - 2026-04-22T16:00:00.000Z",
         runEvaluations: [{ name: "avg_accuracy", value: 0.5 }],
         itemResults: [],
@@ -157,6 +160,7 @@ describe("setOutputs", () => {
       },
       experiment_result: {
         experiment_id: "exp_456",
+        dataset_run_id: "run_456",
         run_name: "Uppercase task - 2026-04-22T16:00:00.000Z",
         run_evaluations: [{ name: "avg_accuracy", value: 0.5 }],
         item_results: [],

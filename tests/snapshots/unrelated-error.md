@@ -18,5 +18,4 @@
 > **Run failed — ValueError:** bad input on line 17
 
 </details>
-<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fbroken.py -->

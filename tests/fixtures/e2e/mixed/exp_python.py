@@ -1,10 +1,13 @@
 """Mixed-runtime e2e fixture (Python side): runs a real experiment."""
 
+import os
+
 from langfuse import Evaluation, get_client
 
 
 def _task(*, item, **kwargs):
-    return item["input"].upper()
+    value = item["input"] if isinstance(item, dict) else item.input
+    return value.upper()
 
 
 def _exact_match(*, output, expected_output, **kwargs):
@@ -27,6 +30,16 @@ def _avg_accuracy(*, item_results, **kwargs):
 
 def experiment():
     langfuse = get_client()
+    dataset_name = os.getenv("LANGFUSE_DATASET_NAME")
+    if dataset_name:
+        dataset = langfuse.get_dataset(dataset_name)
+        return dataset.run_experiment(
+            name="Mixed dir (python)",
+            task=_task,
+            evaluators=[_exact_match],
+            run_evaluators=[_avg_accuracy],
+        )
+
     return langfuse.run_experiment(
         name="Mixed dir (python)",
         data=[

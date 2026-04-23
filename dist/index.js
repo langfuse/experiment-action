@@ -67683,6 +67683,8 @@ function resolveLangfuseExperimentUrl(params) {
     const { result, baseUrl, projectId } = params;
     if (!result)
         return null;
+    if (!result.datasetRunId)
+        return null;
     if (baseUrl && projectId && typeof result.experimentId === "string" && result.experimentId) {
         return buildExperimentResultsUrl({
             baseUrl,
@@ -68025,25 +68027,29 @@ function statusSummary(err) {
         return { icon: "❌", status: "❌ Regression" };
     return { icon: "❌", status: "❌ Error" };
 }
-function renderActionLinks(runUrl, langfuseUrl) {
+function renderActionLinks(runUrl, langfuseUrl, localDataset) {
     const actions = [];
     if (runUrl)
         actions.push(`[View GitHub Action Run](${runUrl})`);
     if (langfuseUrl)
         actions.push(`[View in Langfuse](${langfuseUrl})`);
+    if (localDataset)
+        actions.push("Local dataset");
     return actions;
 }
-function renderActionMetadata(runUrl, langfuseUrl) {
+function renderActionMetadata(runUrl, langfuseUrl, localDataset) {
     const attrs = [];
     if (runUrl)
         attrs.push(`run=${encodeURIComponent(runUrl)}`);
     if (langfuseUrl)
         attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
+    if (localDataset)
+        attrs.push("local_dataset=true");
     return attrs.length > 0 ? attrs.join(" ") : null;
 }
 function renderSectionStartMarker(scriptPath, opts = {}) {
     const { start } = sectionMarkers(scriptPath);
-    const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl);
+    const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl, opts.localDataset);
     return `${start}${attrs ? ` ${attrs}` : ""} -->`;
 }
 function parseActionAttributes(raw) {
@@ -68058,7 +68064,11 @@ function parseActionAttributes(raw) {
     const langfuseUrl = attrs.get("langfuse")
         ? decodeURIComponent(attrs.get("langfuse") ?? "")
         : undefined;
-    return { runUrl, langfuseUrl };
+    return {
+        runUrl,
+        langfuseUrl,
+        localDataset: attrs.get("local_dataset") === "true",
+    };
 }
 function renderOverviewTable(metas) {
     const duplicates = new Map();
@@ -68072,7 +68082,7 @@ function renderOverviewTable(metas) {
         return [
             experiment,
             cell(meta.status, 20),
-            renderActionLinks(meta.runUrl, meta.langfuseUrl).join(" · ") || "—",
+            renderActionLinks(meta.runUrl, meta.langfuseUrl, meta.localDataset).join(" · ") || "—",
         ];
     });
     return [
@@ -68125,6 +68135,7 @@ function parseSectionOverview(body) {
         const legacyActionMeta = parseActionAttributes(sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1]);
         const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
         const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
+        const localDataset = startAttrs.localDataset ?? legacyActionMeta.localDataset;
         sections.push({
             scriptPath,
             displayName,
@@ -68132,6 +68143,7 @@ function parseSectionOverview(body) {
             status,
             runUrl,
             langfuseUrl,
+            localDataset,
         });
     }
     return sections;
@@ -68219,6 +68231,7 @@ function renderScriptSection(opts) {
     const { end } = sectionMarkers(scriptResult.scriptPath);
     const normalized = scriptResult.normalizedResult;
     const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
+    const localDataset = Boolean(normalized && !normalized.datasetRunId);
     const failed = scriptResult.error !== null;
     const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
     const { icon } = statusSummary(scriptResult.error);
@@ -68227,7 +68240,7 @@ function renderScriptSection(opts) {
         displayName,
     });
     const lines = [
-        renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl }),
+        renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl, localDataset }),
         failed
             ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
             : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
@@ -68238,6 +68251,8 @@ function renderScriptSection(opts) {
         lines.push("");
     }
     if (normalized && normalized.runEvaluations.length > 0) {
+        lines.push("<br>");
+        lines.push("");
         lines.push(renderScoresTable(normalized.runEvaluations));
         lines.push("");
     }
@@ -68268,7 +68283,6 @@ function renderScriptSection(opts) {
         lines.push("");
     }
     lines.push("</details>");
-    lines.push("<br>");
     lines.push(end);
     return `${lines.join("\n").trimEnd()}\n`;
 }

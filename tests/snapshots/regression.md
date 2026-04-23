@@ -5,17 +5,19 @@
 <!-- langfuse-experiment-action:overview:start -->
 | Experiment | Status | Actions |
 | --- | --- | --- |
-| Regression fixture | ❌ Regression | [View GitHub Action Run](https://github.com/o/r/actions/runs/7/job/42) |
+| Regression fixture | ❌ Regression | [View GitHub Action Run](https://github.com/o/r/actions/runs/7/job/42) · Local dataset |
 <!-- langfuse-experiment-action:overview:end -->
 
 <!-- langfuse-experiment-action:details:start -->
 **Details**
 <!-- langfuse-experiment-action:details:end -->
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Freg.py run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 -->
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Freg.py run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 local_dataset=true -->
 <details open><summary>❌ Regression fixture (<a href="https://github.com/o/r/blob/abc1234/tmp/reg.py">Source</a>)</summary>
 
 > **RegressionError:** accuracy dropped to 0.5
+
+<br>
 
 | Score | Value |
 | --- | --- |
@@ -30,5 +32,4 @@
 </details>
 
 </details>
-<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Freg.py -->

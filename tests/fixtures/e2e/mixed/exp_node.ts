@@ -3,7 +3,7 @@ import { LangfuseClient } from "@langfuse/client";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 
-const task = async ({ input }: { input: string }) => String(input).toUpperCase();
+const task = async (item: { input?: unknown }) => String(item.input).toUpperCase();
 
 const exactMatch = async ({
   output,
@@ -34,6 +34,17 @@ export async function experiment() {
   otelSdk.start();
   try {
     const langfuse = new LangfuseClient();
+    const datasetName = process.env.LANGFUSE_DATASET_NAME;
+    if (datasetName) {
+      const dataset = await langfuse.dataset.get(datasetName);
+      return await dataset.runExperiment({
+        name: "Mixed dir (node)",
+        task,
+        evaluators: [exactMatch],
+        runEvaluators: [avgAccuracy],
+      });
+    }
+
     return await langfuse.experiment.run({
       name: "Mixed dir (node)",
       data: [

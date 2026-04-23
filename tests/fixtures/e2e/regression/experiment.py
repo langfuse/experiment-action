@@ -7,6 +7,8 @@ needed for the error type. Once `langfuse` exposes `RegressionError`
 natively this can switch to `from langfuse import RegressionError`.
 """
 
+import os
+
 from langfuse import Evaluation, get_client
 
 
@@ -17,7 +19,8 @@ class RegressionError(Exception):
 
 
 def _task(*, item, **kwargs):
-    return item["input"].upper()
+    value = item["input"] if isinstance(item, dict) else item.input
+    return value.upper()
 
 
 def _exact_match(*, output, expected_output, **kwargs):
@@ -29,11 +32,20 @@ def _exact_match(*, output, expected_output, **kwargs):
 
 def experiment():
     langfuse = get_client()
-    result = langfuse.run_experiment(
-        name="Regression fixture",
-        data=[{"input": "regression", "expected_output": "REGRESSION"}],
-        task=_task,
-        evaluators=[_exact_match],
-    )
+    dataset_name = os.getenv("LANGFUSE_DATASET_NAME")
+    if dataset_name:
+        dataset = langfuse.get_dataset(dataset_name)
+        result = dataset.run_experiment(
+            name="Regression fixture",
+            task=_task,
+            evaluators=[_exact_match],
+        )
+    else:
+        result = langfuse.run_experiment(
+            name="Regression fixture",
+            data=[{"input": "regression", "expected_output": "REGRESSION"}],
+            task=_task,
+            evaluators=[_exact_match],
+        )
     # Always raise — simulates a gate check that rejected the run.
     raise RegressionError(result=result)

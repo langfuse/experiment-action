@@ -96,6 +96,7 @@ jobs:
       LANGFUSE_BASE_URL: http://localhost:3000
       LANGFUSE_PUBLIC_KEY: pk-lf-1234567890
       LANGFUSE_SECRET_KEY: sk-lf-1234567890
+      E2E_DATASET_NAME: experiment-action-e2e-${{ github.run_id }}
       # "true" on pull_request, "false" elsewhere (push to main, schedule).
       COMMENT_ON_PR: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
     steps:
@@ -117,6 +118,38 @@ jobs:
         run: pnpm run dev:up
       - name: Wait for Langfuse to be healthy
         run: pnpm run dev:wait
+      - name: Install Python SDK for dataset setup
+        run: python -m pip install --disable-pip-version-check --quiet langfuse
+      - name: Create E2E dataset
+        env:
+          DATASET_NAME: ${{ env.E2E_DATASET_NAME }}
+        run: |
+          python <<'PY'
+          from langfuse import Langfuse
+          import os
+
+          client = Langfuse(
+              public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+              secret_key=os.environ["LANGFUSE_SECRET_KEY"],
+              host=os.environ["LANGFUSE_BASE_URL"],
+          )
+          dataset_name = os.environ["DATASET_NAME"]
+          client.create_dataset(
+              name=dataset_name,
+              description="experiment-action e2e dataset",
+          )
+          for item in [
+              {"input": "hello", "expected_output": "HELLO"},
+              {"input": "world", "expected_output": "WORLD"},
+              {"input": "langfuse", "expected_output": "LANGFUSE"},
+          ]:
+              client.create_dataset_item(
+                  dataset_name=dataset_name,
+                  input=item["input"],
+                  expected_output=item["expected_output"],
+              )
+          client.flush()
+          PY
 
       # --- Scenario 1: single Python script ------------------------------
       - name: Run action — single Python experiment
@@ -127,6 +160,7 @@ jobs:
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
           langfuse_secret_key: ${{ env.LANGFUSE_SECRET_KEY }}
           langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
+          dataset_name: ${{ env.E2E_DATASET_NAME }}
           github_token: ${{ github.token }}
           should_comment_on_pr: ${{ env.COMMENT_ON_PR }}
       - name: Assert single-python passed
@@ -153,6 +187,7 @@ jobs:
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
           langfuse_secret_key: ${{ env.LANGFUSE_SECRET_KEY }}
           langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
+          dataset_name: ${{ env.E2E_DATASET_NAME }}
           github_token: ${{ github.token }}
           should_comment_on_pr: ${{ env.COMMENT_ON_PR }}
       - name: Assert single-typescript passed
@@ -178,6 +213,7 @@ jobs:
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
           langfuse_secret_key: ${{ env.LANGFUSE_SECRET_KEY }}
           langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
+          dataset_name: ${{ env.E2E_DATASET_NAME }}
           github_token: ${{ github.token }}
           should_comment_on_pr: ${{ env.COMMENT_ON_PR }}
       - name: Assert mixed directory ran both scripts
@@ -199,6 +235,7 @@ jobs:
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
           langfuse_secret_key: ${{ env.LANGFUSE_SECRET_KEY }}
           langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
+          dataset_name: ${{ env.E2E_DATASET_NAME }}
           github_token: ${{ github.token }}
           should_comment_on_pr: ${{ env.COMMENT_ON_PR }}
           should_fail_on_regression: "false"

@@ -29,6 +29,7 @@ is detected.
   - [Can I pin a specific Langfuse SDK version?](#can-i-pin-a-specific-langfuse-sdk-version)
   - [Why does the action need a `github_token`?](#why-does-the-action-need-a-github_token)
   - [Does PR commenting work on forked-PR runs?](#does-pr-commenting-work-on-forked-pr-runs)
+  - [Why can't I see my experiment in Langfuse?](#why-cant-i-see-my-experiment-in-langfuse)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -337,6 +338,11 @@ directly. Two common mitigations:
   posts the comment with elevated permissions.
 
 [pr-target-security]: https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+
+### Why can't I see my experiment in Langfuse?
+
+The action only renders `View in Langfuse` for dataset-backed experiments.
+To get a `View in Langfuse` link, run against a real Langfuse dataset by passing `dataset_name` to the action.
 
 ## Contributing
 

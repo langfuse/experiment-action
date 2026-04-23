@@ -84,11 +84,27 @@ describe("resolveLangfuseExperimentUrl", () => {
     ).toBeNull();
   });
 
-  it("builds the experiment results URL from baseUrl and projectId when needed", () => {
+  it("does not build a Langfuse URL for local-data experiments", () => {
     expect(
       resolveLangfuseExperimentUrl({
         result: {
           experimentId: "exp_123",
+          runName: "Uppercase task",
+          itemResults: [],
+          runEvaluations: [],
+        },
+        baseUrl: "http://localhost:3000",
+        projectId: "project_123",
+      }),
+    ).toBeNull();
+  });
+
+  it("builds the experiment results URL for dataset-backed experiments", () => {
+    expect(
+      resolveLangfuseExperimentUrl({
+        result: {
+          experimentId: "exp_123",
+          datasetRunId: "run_123",
           runName: "Uppercase task",
           itemResults: [],
           runEvaluations: [],
