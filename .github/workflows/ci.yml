@@ -176,7 +176,12 @@ jobs:
           echo "$RESULT_JSON" | jq -e '.results[0].status == "passed"'
           echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.run_evaluations[0].name == "avg_accuracy"'
           echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.run_evaluations[0].value == 1'
-          echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.item_results[0].expected_output == "HELLO"'
+          echo "$RESULT_JSON" | jq -e '
+            .results[0].experiment_result.item_results
+            | map(.expected_output)
+            | sort
+            | . == ["HELLO", "LANGFUSE", "WORLD"]
+          '
 
       # --- Scenario 2: single TypeScript script --------------------------
       - name: Run action — single TypeScript experiment
@@ -202,7 +207,12 @@ jobs:
           echo "$RESULT_JSON" | jq -e '.results[0].status == "passed"'
           echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.run_evaluations[0].name == "avg_accuracy"'
           echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.run_evaluations[0].value == 1'
-          echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.item_results[0].expected_output == "HELLO"'
+          echo "$RESULT_JSON" | jq -e '
+            .results[0].experiment_result.item_results
+            | map(.expected_output)
+            | sort
+            | . == ["HELLO", "LANGFUSE", "WORLD"]
+          '
 
       # --- Scenario 3: mixed-runtime directory ---------------------------
       - name: Run action — mixed Python+TS directory
