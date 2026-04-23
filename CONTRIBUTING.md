@@ -59,14 +59,11 @@ exercise the runner plumbing without touching Langfuse. Fixtures under
 ```sh
 cp .env.example .env          # pre-seeded dev credentials work out of the box
 pnpm run dev                  # downloads langfuse's docker-compose.yml, starts + waits for health
-pnpm run e2e:run              # builds dist/ and runs the action against the Python fixture
-pnpm run e2e:run:node         # same for the TS fixture
 pnpm run dev:down             # tear down and wipe volumes
 ```
 
-Both `e2e:run` commands spawn `dist/index.js` directly with `INPUT_*` env
-vars — the same contract GitHub Actions uses — so what runs locally matches
-what runs in CI.
+The repository's end-to-end coverage runs in GitHub Actions CI, where the
+workflow creates a dataset first and then runs the E2E fixtures against it.
 
 ### Point at Langfuse Cloud
 

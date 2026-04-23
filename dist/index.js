@@ -67561,6 +67561,11 @@ function buildExperimentResultsUrl(params) {
     const base = stripTrailingSlash(baseUrl);
     return `${base}/project/${encodeURIComponent(projectId)}/experiments/results?baseline=${encodeURIComponent(experimentId)}`;
 }
+function buildDatasetItemUrl(params) {
+    const { baseUrl, projectId, datasetName, itemId } = params;
+    const base = stripTrailingSlash(baseUrl);
+    return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetName)}/items/${encodeURIComponent(itemId)}`;
+}
 function stripTrailingSlash(s) {
     return s.endsWith("/") ? s.slice(0, -1) : s;
 }
@@ -67932,6 +67937,7 @@ function normalizeRepoPath(scriptPath, workspace) {
 
 
 
+
 // ---------------------------------------------------------------------------
 // Markers
 // ---------------------------------------------------------------------------
@@ -68185,16 +68191,58 @@ function renderScoresTable(evaluations) {
     const rows = evaluations.map((e) => `| \`${e.name}\` | ${formatScore(e.value)} |`);
     return ["| Score | Value |", "| --- | --- |", ...rows].join("\n");
 }
-function renderItemsTable(itemResults) {
+function extractLangfuseProjectRef(langfuseUrl) {
+    if (!langfuseUrl)
+        return null;
+    try {
+        const url = new URL(langfuseUrl);
+        const projectIdx = url.pathname.indexOf("/project/");
+        if (projectIdx === -1)
+            return null;
+        const basePath = url.pathname.slice(0, projectIdx);
+        const projectPath = url.pathname.slice(projectIdx + "/project/".length);
+        const [projectId] = projectPath.split("/", 1);
+        if (!projectId)
+            return null;
+        return {
+            baseUrl: `${url.origin}${basePath}`,
+            projectId: decodeURIComponent(projectId),
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function itemLinkUrl(itemResult, langfuseUrl) {
+    const itemId = typeof itemResult.item.id === "string" ? itemResult.item.id : undefined;
+    const datasetName = typeof itemResult.item.dataset_name === "string"
+        ? itemResult.item.dataset_name
+        : typeof itemResult.item.datasetName === "string"
+            ? itemResult.item.datasetName
+            : undefined;
+    if (!itemId || !datasetName)
+        return undefined;
+    const projectRef = extractLangfuseProjectRef(langfuseUrl);
+    if (!projectRef)
+        return undefined;
+    return buildDatasetItemUrl({
+        baseUrl: projectRef.baseUrl,
+        projectId: projectRef.projectId,
+        datasetName,
+        itemId,
+    });
+}
+function renderItemsTable(itemResults, opts = {}) {
     if (itemResults.length === 0)
         return "";
     const evaluatorNames = Array.from(new Set(itemResults.flatMap((r) => r.evaluations.map((e) => e.name))));
     const header = ["Item", "Input", "Expected", "Output", ...evaluatorNames];
     const rows = itemResults.map((r, idx) => {
-        const label = typeof r.item.id === "string" ? r.item.id : String(idx + 1);
+        const label = String(idx + 1);
+        const itemUrl = itemLinkUrl(r, opts.langfuseUrl);
         const scoreByName = new Map(r.evaluations.map((e) => [e.name, e.value]));
         const cells = [
-            cell(label, 24),
+            itemUrl ? `[${label}](${itemUrl})` : label,
             cell(r.input),
             cell(r.expectedOutput),
             cell(r.output),
@@ -68262,7 +68310,7 @@ function renderScriptSection(opts) {
         const hiddenCount = total - visible.length;
         lines.push(`<details><summary>Item results (${total})</summary>`);
         lines.push("");
-        lines.push(renderItemsTable(visible));
+        lines.push(renderItemsTable(visible, { langfuseUrl }));
         if (hiddenCount > 0) {
             lines.push("");
             if (langfuseUrl) {

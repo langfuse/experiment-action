@@ -9,6 +9,7 @@ import {
   type NormalizedExperimentResult,
 } from "@/experiment-result";
 import { makeOctokit } from "@/github/octokit";
+import { buildDatasetItemUrl } from "@/langfuse/project";
 
 import { buildScriptBlobUrl, buildWorkflowRunUrl } from "./metadata";
 import type { ResolvedInputs, ScriptError, ScriptResult } from "./types";
@@ -318,7 +319,58 @@ function renderScoresTable(evaluations: NormalizedExperimentResult["runEvaluatio
   return ["| Score | Value |", "| --- | --- |", ...rows].join("\n");
 }
 
-function renderItemsTable(itemResults: NormalizedExperimentItemResult[]): string {
+function extractLangfuseProjectRef(
+  langfuseUrl?: string,
+): { baseUrl: string; projectId: string } | null {
+  if (!langfuseUrl) return null;
+
+  try {
+    const url = new URL(langfuseUrl);
+    const projectIdx = url.pathname.indexOf("/project/");
+    if (projectIdx === -1) return null;
+
+    const basePath = url.pathname.slice(0, projectIdx);
+    const projectPath = url.pathname.slice(projectIdx + "/project/".length);
+    const [projectId] = projectPath.split("/", 1);
+    if (!projectId) return null;
+
+    return {
+      baseUrl: `${url.origin}${basePath}`,
+      projectId: decodeURIComponent(projectId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function itemLinkUrl(
+  itemResult: NormalizedExperimentItemResult,
+  langfuseUrl?: string,
+): string | undefined {
+  const itemId = typeof itemResult.item.id === "string" ? itemResult.item.id : undefined;
+  const datasetName =
+    typeof itemResult.item.dataset_name === "string"
+      ? itemResult.item.dataset_name
+      : typeof itemResult.item.datasetName === "string"
+        ? itemResult.item.datasetName
+        : undefined;
+  if (!itemId || !datasetName) return undefined;
+
+  const projectRef = extractLangfuseProjectRef(langfuseUrl);
+  if (!projectRef) return undefined;
+
+  return buildDatasetItemUrl({
+    baseUrl: projectRef.baseUrl,
+    projectId: projectRef.projectId,
+    datasetName,
+    itemId,
+  });
+}
+
+function renderItemsTable(
+  itemResults: NormalizedExperimentItemResult[],
+  opts: { langfuseUrl?: string } = {},
+): string {
   if (itemResults.length === 0) return "";
   const evaluatorNames = Array.from(
     new Set(itemResults.flatMap((r) => r.evaluations.map((e) => e.name))),
@@ -326,10 +378,11 @@ function renderItemsTable(itemResults: NormalizedExperimentItemResult[]): string
 
   const header = ["Item", "Input", "Expected", "Output", ...evaluatorNames];
   const rows = itemResults.map((r, idx) => {
-    const label = typeof r.item.id === "string" ? r.item.id : String(idx + 1);
+    const label = String(idx + 1);
+    const itemUrl = itemLinkUrl(r, opts.langfuseUrl);
     const scoreByName = new Map(r.evaluations.map((e) => [e.name, e.value]));
     const cells = [
-      cell(label, 24),
+      itemUrl ? `[${label}](${itemUrl})` : label,
       cell(r.input),
       cell(r.expectedOutput),
       cell(r.output),
@@ -411,7 +464,7 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
 
     lines.push(`<details><summary>Item results (${total})</summary>`);
     lines.push("");
-    lines.push(renderItemsTable(visible));
+    lines.push(renderItemsTable(visible, { langfuseUrl }));
     if (hiddenCount > 0) {
       lines.push("");
       if (langfuseUrl) {

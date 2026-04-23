@@ -26,7 +26,7 @@
 | Item | Input | Expected | Output | exact_match |
 | --- | --- | --- | --- | --- |
 | 1 | hello | HELLO | HELLO | 1.000 |
-| dataset-item-42 | world | WORLD | WORLD | 1.000 |
+| 2 | world | WORLD | WORLD | 1.000 |
 
 </details>
 

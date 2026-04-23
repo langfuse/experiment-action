@@ -1,24 +1,13 @@
 /**
- * E2E fixture: deterministic experiment against a live Langfuse instance.
+ * E2E fixture: deterministic dataset-backed experiment against Langfuse.
  *
- * Mirrors `experiment.py`. Inline dataset, pure string-transform task (no
- * LLM), per-item and run-level evaluators. OpenTelemetry is initialized so
- * experiment traces land in Langfuse alongside the returned result.
+ * Mirrors `experiment.py`. Pure string-transform task (no LLM), per-item and
+ * run-level evaluators. OpenTelemetry is initialized so experiment traces land
+ * in Langfuse alongside the returned result.
  */
 import { LangfuseClient } from "@langfuse/client";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeSDK } from "@opentelemetry/sdk-node";
-
-interface ItemInput {
-  input: string;
-  expectedOutput: string;
-}
-
-const LOCAL_DATA: ItemInput[] = [
-  { input: "hello", expectedOutput: "HELLO" },
-  { input: "world", expectedOutput: "WORLD" },
-  { input: "langfuse", expectedOutput: "LANGFUSE" },
-];
 
 const uppercaseTask = async (item: { input?: unknown }) => String(item.input).toUpperCase();
 
@@ -62,21 +51,13 @@ export async function experiment() {
   try {
     const langfuse = new LangfuseClient();
     const datasetName = process.env.LANGFUSE_DATASET_NAME;
-    if (datasetName) {
-      const dataset = await langfuse.dataset.get(datasetName);
-      return await dataset.runExperiment({
-        name: "Uppercase (ts)",
-        description: "Deterministic string-transform task; no LLM involved.",
-        task: uppercaseTask,
-        evaluators: [exactMatch],
-        runEvaluators: [avgAccuracy],
-      });
+    if (!datasetName) {
+      throw new Error("LANGFUSE_DATASET_NAME is required");
     }
-
-    return await langfuse.experiment.run({
+    const dataset = await langfuse.dataset.get(datasetName);
+    return await dataset.runExperiment({
       name: "Uppercase (ts)",
       description: "Deterministic string-transform task; no LLM involved.",
-      data: LOCAL_DATA,
       task: uppercaseTask,
       evaluators: [exactMatch],
       runEvaluators: [avgAccuracy],

@@ -76,7 +76,12 @@ const pyDatasetPassingResult: ScriptResult = scriptResultFromRaw({
     run_evaluations: [{ name: "avg_accuracy", value: 1 }],
     item_results: [
       {
-        item: { input: "hello", expected_output: "HELLO" },
+        item: {
+          id: "a895fde1-36b2-43cd-8ab5-841541a81460",
+          dataset_name: "test-dataset-versioning-950dc53a",
+          input: "hello",
+          expected_output: "HELLO",
+        },
         output: "HELLO",
         evaluations: [{ name: "exact_match", value: 1 }],
       },

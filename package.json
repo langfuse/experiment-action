@@ -25,9 +25,6 @@
     "dev:up": "node scripts/langfuse-server.mjs up",
     "dev:wait": "node scripts/langfuse-server.mjs wait",
     "dev:down": "node scripts/langfuse-server.mjs down",
-    "e2e:run": "node scripts/run-action.mjs tests/fixtures/e2e/experiment.py",
-    "e2e:run:node": "node scripts/run-action.mjs tests/fixtures/e2e/experiment.ts",
-    "test:e2e": "pnpm run build && pnpm run e2e:run && pnpm run e2e:run:node",
     "all": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:schema && pnpm run build",
     "prepare": "husky"
   },

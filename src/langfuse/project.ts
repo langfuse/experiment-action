@@ -50,6 +50,17 @@ export function buildExperimentResultsUrl(params: {
   return `${base}/project/${encodeURIComponent(projectId)}/experiments/results?baseline=${encodeURIComponent(experimentId)}`;
 }
 
+export function buildDatasetItemUrl(params: {
+  baseUrl: string;
+  projectId: string;
+  datasetName: string;
+  itemId: string;
+}): string {
+  const { baseUrl, projectId, datasetName, itemId } = params;
+  const base = stripTrailingSlash(baseUrl);
+  return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetName)}/items/${encodeURIComponent(itemId)}`;
+}
+
 function stripTrailingSlash(s: string): string {
   return s.endsWith("/") ? s.slice(0, -1) : s;
 }

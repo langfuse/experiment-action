@@ -1,4 +1,4 @@
-/** Mixed-runtime e2e fixture (Node side): runs a real experiment. */
+/** Mixed-runtime E2E fixture (Node side): dataset-backed experiment. */
 import { LangfuseClient } from "@langfuse/client";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeSDK } from "@opentelemetry/sdk-node";
@@ -35,22 +35,12 @@ export async function experiment() {
   try {
     const langfuse = new LangfuseClient();
     const datasetName = process.env.LANGFUSE_DATASET_NAME;
-    if (datasetName) {
-      const dataset = await langfuse.dataset.get(datasetName);
-      return await dataset.runExperiment({
-        name: "Mixed dir (node)",
-        task,
-        evaluators: [exactMatch],
-        runEvaluators: [avgAccuracy],
-      });
+    if (!datasetName) {
+      throw new Error("LANGFUSE_DATASET_NAME is required");
     }
-
-    return await langfuse.experiment.run({
+    const dataset = await langfuse.dataset.get(datasetName);
+    return await dataset.runExperiment({
       name: "Mixed dir (node)",
-      data: [
-        { input: "node", expectedOutput: "NODE" },
-        { input: "typescript", expectedOutput: "TYPESCRIPT" },
-      ],
       task,
       evaluators: [exactMatch],
       runEvaluators: [avgAccuracy],

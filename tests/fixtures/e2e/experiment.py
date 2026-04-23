@@ -1,21 +1,8 @@
-"""E2E fixture: deterministic experiment against a live Langfuse instance.
-
-Defines the dataset inline (no `RunnerContext` yet — coming in v2), uses a
-pure string-transform task (no LLM → fully reproducible), and ships both a
-per-item evaluator and a run-level evaluator.
-"""
+"""E2E fixture: deterministic dataset-backed experiment against Langfuse."""
 
 import os
 
 from langfuse import Evaluation, get_client
-
-
-LOCAL_DATA = [
-    {"input": "hello", "expected_output": "HELLO"},
-    {"input": "world", "expected_output": "WORLD"},
-    {"input": "langfuse", "expected_output": "LANGFUSE"},
-]
-
 
 def uppercase_task(*, item, **kwargs):
     value = item["input"] if isinstance(item, dict) else item.input
@@ -47,21 +34,10 @@ def avg_accuracy(*, item_results, **kwargs):
 
 def experiment():
     langfuse = get_client()
-    dataset_name = os.getenv("LANGFUSE_DATASET_NAME")
-    if dataset_name:
-        dataset = langfuse.get_dataset(dataset_name)
-        return dataset.run_experiment(
-            name="Uppercase (py)",
-            description="Deterministic string-transform task; no LLM involved.",
-            task=uppercase_task,
-            evaluators=[exact_match],
-            run_evaluators=[avg_accuracy],
-        )
-
-    return langfuse.run_experiment(
+    dataset = langfuse.get_dataset(os.environ["LANGFUSE_DATASET_NAME"])
+    return dataset.run_experiment(
         name="Uppercase (py)",
         description="Deterministic string-transform task; no LLM involved.",
-        data=LOCAL_DATA,
         task=uppercase_task,
         evaluators=[exact_match],
         run_evaluators=[avg_accuracy],

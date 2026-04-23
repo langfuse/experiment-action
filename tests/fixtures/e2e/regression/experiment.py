@@ -1,4 +1,4 @@
-"""Regression e2e fixture: runs a real experiment and then raises
+"""Regression E2E fixture: dataset-backed experiment that then raises
 `RegressionError` to exercise the non-fatal failure path.
 
 The action detects this by error class name (`type(exc).__name__ ==
@@ -32,20 +32,11 @@ def _exact_match(*, output, expected_output, **kwargs):
 
 def experiment():
     langfuse = get_client()
-    dataset_name = os.getenv("LANGFUSE_DATASET_NAME")
-    if dataset_name:
-        dataset = langfuse.get_dataset(dataset_name)
-        result = dataset.run_experiment(
-            name="Regression fixture",
-            task=_task,
-            evaluators=[_exact_match],
-        )
-    else:
-        result = langfuse.run_experiment(
-            name="Regression fixture",
-            data=[{"input": "regression", "expected_output": "REGRESSION"}],
-            task=_task,
-            evaluators=[_exact_match],
-        )
+    dataset = langfuse.get_dataset(os.environ["LANGFUSE_DATASET_NAME"])
+    result = dataset.run_experiment(
+        name="Regression fixture",
+        task=_task,
+        evaluators=[_exact_match],
+    )
     # Always raise — simulates a gate check that rejected the run.
     raise RegressionError(result=result)
