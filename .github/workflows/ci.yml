@@ -191,7 +191,7 @@ jobs:
           echo "$RESULT_JSON" | jq -e '.results | map(.runtime) | sort | . == ["node", "python"]'
 
       # --- Scenario 4: regression path (non-fatal) -----------------------
-      - name: Run action — regression fixture (should_fail_on_error=false)
+      - name: Run action — regression fixture (should_fail_on_regression=false)
         id: regression
         uses: ./
         with:
@@ -201,7 +201,7 @@ jobs:
           langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
           github_token: ${{ github.token }}
           should_comment_on_pr: ${{ env.COMMENT_ON_PR }}
-          should_fail_on_error: "false"
+          should_fail_on_regression: "false"
       - name: Assert regression was captured (without failing the job)
         env:
           FAILED: ${{ steps.regression.outputs.failed }}
