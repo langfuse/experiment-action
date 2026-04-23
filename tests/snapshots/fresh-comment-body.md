@@ -3,13 +3,17 @@
 # <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234`
 
 <!-- langfuse-experiment-action:overview:start -->
-| Experiment | Status | Score | Items | Actions |
-| --- | --- | --- | --- | --- |
-| Uppercase task | ✅ Pass | `avg_accuracy`: 1.000 | 2 | — |
+| Experiment | Status | Actions |
+| --- | --- | --- |
+| Uppercase task | ✅ Pass | — |
 <!-- langfuse-experiment-action:overview:end -->
 
+**Details**
+
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
-<details><summary>✅ Uppercase task (`tmp/experiment.py`)</summary>
+<details><summary>✅ Uppercase task</summary>
+
+Script: `tmp/experiment.py`
 
 | Score | Value |
 | --- | --- |

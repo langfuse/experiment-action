@@ -62,7 +62,7 @@ export async function experiment() {
   try {
     const langfuse = new LangfuseClient();
     return await langfuse.experiment.run({
-      name: "experiment-action e2e: uppercase task",
+      name: "Uppercase (ts)",
       description: "Deterministic string-transform task; no LLM involved.",
       data: LOCAL_DATA,
       task: uppercaseTask,

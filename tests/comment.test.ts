@@ -72,7 +72,7 @@ const tsPassingResult: ScriptResult = scriptResultFromRaw({
   runtime: "node",
   result: {
     experimentId: "663423cc937e2227",
-    runName: "experiment-action e2e: mixed dir (node) - 2026-04-20T13:31:24.904Z",
+    runName: "Mixed dir (node) - 2026-04-20T13:31:24.904Z",
     runEvaluations: [{ name: "avg_accuracy", value: 0.83 }],
     itemResults: [
       {
@@ -141,7 +141,7 @@ describe("renderScriptSection snapshots", () => {
       "[View in Langfuse](http://localhost:3000/project/7a88fb47-b4e2-43b8-a06c-a5ce950dc53a" +
         "/experiments/results?baseline=0f212f9182320769)",
     );
-    expect(body).toContain("| Experiment | Status | Score | Items | Actions |");
+    expect(body).toContain("| Experiment | Status | Actions |");
     await expect(body).toMatchFileSnapshot(snap("passing.md"));
   });
 
@@ -171,22 +171,22 @@ describe("renderScriptSection snapshots", () => {
       result: { ...unrelatedError, normalizedResult: null },
     });
     expect(section).toMatch(/^<!-- langfuse-experiment-action:start script=/);
-    // No SDK name → summary uses the script filename as the display name,
-    // with the script path repeated in parens for disambiguation.
-    expect(section).toContain("<details open><summary>❌ broken.py (`tmp/broken.py`)</summary>");
+    // No SDK name → summary uses the script filename as the display name.
+    expect(section).toContain("<details open><summary>❌ broken.py</summary>");
+    expect(section).toContain("Script: `tmp/broken.py`");
   });
 
-  it("always appends the script path to the summary, even with an SDK name", () => {
+  it("shows the script path inside the expanded body", () => {
     const section = renderScriptSection({ result: pyPassingResult });
-    expect(section).toContain(
-      "<details><summary>✅ Uppercase task (`tmp/experiment.py`)</summary>",
-    );
+    expect(section).toContain("<details><summary>✅ Uppercase task</summary>");
+    expect(section).toContain("Script: `tmp/experiment.py`");
   });
 
   it("recovers the user-provided name from `runName` when the SDK only exposes that (JS SDK)", () => {
     const section = renderScriptSection({ result: tsPassingResult });
     // Timestamp suffix stripped → user's original `name` back in the summary.
-    expect(section).toContain("✅ experiment-action e2e: mixed dir (node) (`mixed/exp_node.ts`)");
+    expect(section).toContain("✅ Mixed dir (node)</summary>");
+    expect(section).toContain("Script: `mixed/exp_node.ts`");
     expect(section).not.toContain("2026-04-20T");
   });
 

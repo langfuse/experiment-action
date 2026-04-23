@@ -28,7 +28,7 @@ def _avg_accuracy(*, item_results, **kwargs):
 def experiment():
     langfuse = get_client()
     return langfuse.run_experiment(
-        name="experiment-action e2e: mixed dir (python)",
+        name="Mixed dir (python)",
         data=[
             {"input": "python", "expected_output": "PYTHON"},
             {"input": "langfuse", "expected_output": "LANGFUSE"},

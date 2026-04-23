@@ -67996,6 +67996,14 @@ function renderActionLinks(runUrl, langfuseUrl) {
         actions.push(`[View in Langfuse](${langfuseUrl})`);
     return actions;
 }
+function renderActionMetadata(runUrl, langfuseUrl) {
+    const attrs = [];
+    if (runUrl)
+        attrs.push(`run=${encodeURIComponent(runUrl)}`);
+    if (langfuseUrl)
+        attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
+    return attrs.length > 0 ? `<!-- langfuse-experiment-action:actions ${attrs.join(" ")} -->` : null;
+}
 function renderOverviewTable(metas) {
     const duplicates = new Map();
     for (const meta of metas) {
@@ -68008,14 +68016,12 @@ function renderOverviewTable(metas) {
         return [
             experiment,
             cell(meta.status, 20),
-            cell(meta.scoreSummary, 56),
-            String(meta.itemCount),
             renderActionLinks(meta.runUrl, meta.langfuseUrl).join(" · ") || "—",
         ];
     });
     return [
-        "| Experiment | Status | Score | Items | Actions |",
-        "| --- | --- | --- | --- | --- |",
+        "| Experiment | Status | Actions |",
+        "| --- | --- | --- |",
         ...rows.map((row) => `| ${row.join(" | ")} |`),
     ].join("\n");
 }
@@ -68027,15 +68033,6 @@ function replaceMarkedBlock(body, start, end, replacement) {
     const before = body.slice(0, startIdx).replace(/\s+$/, "");
     const after = body.slice(endIdx + end.length).replace(/^\s+/, "");
     return `${before}\n\n${replacement}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-}
-function summarizeParsedScores(rows) {
-    if (rows.length === 0)
-        return "—";
-    if (rows.length <= 2) {
-        return rows.map((row) => `\`${row.name}\`: ${row.value}`).join(", ");
-    }
-    const [first] = rows;
-    return `\`${first?.name}\`: ${first?.value} (+${rows.length - 1} more)`;
 }
 function parseSectionOverview(body) {
     const sections = [];
@@ -68052,36 +68049,36 @@ function parseSectionOverview(body) {
         if (sectionEnd === -1)
             continue;
         const sectionBody = body.slice(sectionStart, sectionEnd + end.length);
-        const summaryMatch = sectionBody.match(/<details(?: open)?><summary>(.+?) \(`([^`]+)`\)<\/summary>/s);
-        if (!summaryMatch)
+        const summaryText = sectionBody.match(/<details(?: open)?><summary>(.*?)<\/summary>/s)?.[1];
+        if (!summaryText)
             continue;
-        const [, summaryPrefix, scriptLabel] = summaryMatch;
-        if (!summaryPrefix || !scriptLabel)
-            continue;
-        const firstSpace = summaryPrefix.indexOf(" ");
+        const firstSpace = summaryText.indexOf(" ");
         if (firstSpace === -1)
             continue;
-        const displayName = summaryPrefix.slice(firstSpace + 1);
-        const evaluations = Array.from(sectionBody.matchAll(/^\| `([^`]+)` \| ([^|]+) \|$/gm), (row) => ({
-            name: row[1] ?? "",
-            value: row[2]?.trim() ?? "",
-        })).filter((row) => row.name.length > 0);
-        const scoreSummary = summarizeParsedScores(evaluations);
-        const itemCount = Number(sectionBody.match(/<details><summary>Item results \((\d+)\)<\/summary>/)?.[1] ?? "0");
+        const displayName = summaryText.slice(firstSpace + 1);
+        const scriptLabelText = scriptLabel(scriptPath, external_node_path_namespaceObject.basename(scriptPath));
         const status = sectionBody.includes("[!WARNING]")
             ? "❌ Regression"
             : sectionBody.includes("[!CAUTION]")
                 ? "❌ Error"
                 : "✅ Pass";
-        const runUrl = sectionBody.match(/\[View GitHub Action Run\]\(([^)]+)\)/)?.[1];
-        const langfuseUrl = sectionBody.match(/\[View in Langfuse\]\(([^)]+)\)/)?.[1];
+        const actionMeta = sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1];
+        const attrs = new Map((actionMeta ?? "")
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((part) => {
+            const [key, ...valueParts] = part.split("=");
+            return [key ?? "", valueParts.join("=")];
+        }));
+        const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
+        const langfuseUrl = attrs.get("langfuse")
+            ? decodeURIComponent(attrs.get("langfuse") ?? "")
+            : undefined;
         sections.push({
             scriptPath,
             displayName,
-            scriptLabel,
+            scriptLabel: scriptLabelText,
             status,
-            scoreSummary,
-            itemCount,
             runUrl,
             langfuseUrl,
         });
@@ -68100,13 +68097,13 @@ function refreshOverview(body) {
     const overviewBlock = [start, renderOverviewTable(metas), end].join("\n");
     const before = withoutOverview.slice(0, firstSectionIdx).replace(/\s+$/, "");
     const after = withoutOverview.slice(firstSectionIdx).replace(/^\s+/, "");
-    return `${before}\n\n${overviewBlock}\n\n${after}`
+    return `${before}\n\n${overviewBlock}\n\n**Details**\n\n${after}`
         .replace(/\n{3,}/g, "\n\n")
         .trimEnd()
         .concat("\n");
 }
 function renderSectionSummary(params) {
-    return `${params.icon} ${params.displayName} (\`${params.scriptLabel}\`)`;
+    return `${params.icon} ${params.displayName}`;
 }
 // ---------------------------------------------------------------------------
 // Rendering
@@ -68170,16 +68167,18 @@ function renderScriptSection(opts) {
     const summary = renderSectionSummary({
         icon,
         displayName,
-        scriptLabel: scriptLabelText,
     });
+    const actionMetadata = renderActionMetadata(runUrl, langfuseUrl);
     const lines = [
         start,
+        ...(actionMetadata ? [actionMetadata] : []),
         failed
             ? `<details open><summary>${summary}</summary>`
             : `<details><summary>${summary}</summary>`,
         "",
     ];
-    const links = renderActionLinks(runUrl, langfuseUrl);
+    lines.push(`Script: \`${scriptLabelText}\``);
+    lines.push("");
     if (scriptResult.error) {
         lines.push(renderErrorCallout(scriptResult.error));
         lines.push("");
@@ -68212,10 +68211,6 @@ function renderScriptSection(opts) {
         !normalized?.runEvaluations.length &&
         !normalized?.itemResults.length) {
         lines.push("_No evaluations or items were returned._");
-        lines.push("");
-    }
-    if (links.length > 0) {
-        lines.push(links.join(" · "));
         lines.push("");
     }
     lines.push("</details>");

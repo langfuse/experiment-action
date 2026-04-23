@@ -3,13 +3,18 @@
 # <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234`
 
 <!-- langfuse-experiment-action:overview:start -->
-| Experiment | Status | Score | Items | Actions |
-| --- | --- | --- | --- | --- |
-| Regression fixture | ❌ Regression | `avg_accuracy`: 0.500 | 1 | [View GitHub Action Run](https://github.com/o/r/actions/runs/7/job/42) |
+| Experiment | Status | Actions |
+| --- | --- | --- |
+| Regression fixture | ❌ Regression | [View GitHub Action Run](https://github.com/o/r/actions/runs/7/job/42) |
 <!-- langfuse-experiment-action:overview:end -->
 
+**Details**
+
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Freg.py -->
-<details open><summary>❌ Regression fixture (`tmp/reg.py`)</summary>
+<!-- langfuse-experiment-action:actions run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 -->
+<details open><summary>❌ Regression fixture</summary>
+
+Script: `tmp/reg.py`
 
 > [!WARNING]
 > **RegressionError:** accuracy dropped to 0.5
@@ -25,8 +30,6 @@
 | 1 | x | X | X | 1.000 |
 
 </details>
-
-[View GitHub Action Run](https://github.com/o/r/actions/runs/7/job/42)
 
 </details>
 <br>

@@ -116,8 +116,6 @@ interface ParsedSectionOverview {
   displayName: string;
   scriptLabel: string;
   status: string;
-  scoreSummary: string;
-  itemCount: number;
   runUrl?: string;
   langfuseUrl?: string;
 }
@@ -127,6 +125,13 @@ function renderActionLinks(runUrl?: string, langfuseUrl?: string): string[] {
   if (runUrl) actions.push(`[View GitHub Action Run](${runUrl})`);
   if (langfuseUrl) actions.push(`[View in Langfuse](${langfuseUrl})`);
   return actions;
+}
+
+function renderActionMetadata(runUrl?: string, langfuseUrl?: string): string | null {
+  const attrs: string[] = [];
+  if (runUrl) attrs.push(`run=${encodeURIComponent(runUrl)}`);
+  if (langfuseUrl) attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
+  return attrs.length > 0 ? `<!-- langfuse-experiment-action:actions ${attrs.join(" ")} -->` : null;
 }
 
 function renderOverviewTable(metas: ParsedSectionOverview[]): string {
@@ -144,15 +149,13 @@ function renderOverviewTable(metas: ParsedSectionOverview[]): string {
     return [
       experiment,
       cell(meta.status, 20),
-      cell(meta.scoreSummary, 56),
-      String(meta.itemCount),
       renderActionLinks(meta.runUrl, meta.langfuseUrl).join(" · ") || "—",
     ];
   });
 
   return [
-    "| Experiment | Status | Score | Items | Actions |",
-    "| --- | --- | --- | --- | --- |",
+    "| Experiment | Status | Actions |",
+    "| --- | --- | --- |",
     ...rows.map((row) => `| ${row.join(" | ")} |`),
   ].join("\n");
 }
@@ -165,16 +168,6 @@ function replaceMarkedBlock(body: string, start: string, end: string, replacemen
   const before = body.slice(0, startIdx).replace(/\s+$/, "");
   const after = body.slice(endIdx + end.length).replace(/^\s+/, "");
   return `${before}\n\n${replacement}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-}
-
-function summarizeParsedScores(rows: Array<{ name: string; value: string }>): string {
-  if (rows.length === 0) return "—";
-  if (rows.length <= 2) {
-    return rows.map((row) => `\`${row.name}\`: ${row.value}`).join(", ");
-  }
-
-  const [first] = rows;
-  return `\`${first?.name}\`: ${first?.value} (+${rows.length - 1} more)`;
 }
 
 function parseSectionOverview(body: string): ParsedSectionOverview[] {
@@ -193,44 +186,41 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
     if (sectionEnd === -1) continue;
 
     const sectionBody = body.slice(sectionStart, sectionEnd + end.length);
-    const summaryMatch = sectionBody.match(
-      /<details(?: open)?><summary>(.+?) \(`([^`]+)`\)<\/summary>/s,
-    );
-    if (!summaryMatch) continue;
+    const summaryText = sectionBody.match(/<details(?: open)?><summary>(.*?)<\/summary>/s)?.[1];
+    if (!summaryText) continue;
 
-    const [, summaryPrefix, scriptLabel] = summaryMatch;
-    if (!summaryPrefix || !scriptLabel) continue;
-
-    const firstSpace = summaryPrefix.indexOf(" ");
+    const firstSpace = summaryText.indexOf(" ");
     if (firstSpace === -1) continue;
 
-    const displayName = summaryPrefix.slice(firstSpace + 1);
-    const evaluations = Array.from(
-      sectionBody.matchAll(/^\| `([^`]+)` \| ([^|]+) \|$/gm),
-      (row) => ({
-        name: row[1] ?? "",
-        value: row[2]?.trim() ?? "",
-      }),
-    ).filter((row) => row.name.length > 0);
-    const scoreSummary = summarizeParsedScores(evaluations);
-    const itemCount = Number(
-      sectionBody.match(/<details><summary>Item results \((\d+)\)<\/summary>/)?.[1] ?? "0",
-    );
+    const displayName = summaryText.slice(firstSpace + 1);
+    const scriptLabelText = scriptLabel(scriptPath, path.basename(scriptPath));
     const status = sectionBody.includes("[!WARNING]")
       ? "❌ Regression"
       : sectionBody.includes("[!CAUTION]")
         ? "❌ Error"
         : "✅ Pass";
-    const runUrl = sectionBody.match(/\[View GitHub Action Run\]\(([^)]+)\)/)?.[1];
-    const langfuseUrl = sectionBody.match(/\[View in Langfuse\]\(([^)]+)\)/)?.[1];
+    const actionMeta = sectionBody.match(
+      /<!-- langfuse-experiment-action:actions ([^>]+) -->/,
+    )?.[1];
+    const attrs = new Map(
+      (actionMeta ?? "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => {
+          const [key, ...valueParts] = part.split("=");
+          return [key ?? "", valueParts.join("=")];
+        }),
+    );
+    const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
+    const langfuseUrl = attrs.get("langfuse")
+      ? decodeURIComponent(attrs.get("langfuse") ?? "")
+      : undefined;
 
     sections.push({
       scriptPath,
       displayName,
-      scriptLabel,
+      scriptLabel: scriptLabelText,
       status,
-      scoreSummary,
-      itemCount,
       runUrl,
       langfuseUrl,
     });
@@ -251,18 +241,14 @@ function refreshOverview(body: string): string {
   const overviewBlock = [start, renderOverviewTable(metas), end].join("\n");
   const before = withoutOverview.slice(0, firstSectionIdx).replace(/\s+$/, "");
   const after = withoutOverview.slice(firstSectionIdx).replace(/^\s+/, "");
-  return `${before}\n\n${overviewBlock}\n\n${after}`
+  return `${before}\n\n${overviewBlock}\n\n**Details**\n\n${after}`
     .replace(/\n{3,}/g, "\n\n")
     .trimEnd()
     .concat("\n");
 }
 
-function renderSectionSummary(params: {
-  icon: string;
-  displayName: string;
-  scriptLabel: string;
-}): string {
-  return `${params.icon} ${params.displayName} (\`${params.scriptLabel}\`)`;
+function renderSectionSummary(params: { icon: string; displayName: string }): string {
+  return `${params.icon} ${params.displayName}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,18 +326,20 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
   const summary = renderSectionSummary({
     icon,
     displayName,
-    scriptLabel: scriptLabelText,
   });
+  const actionMetadata = renderActionMetadata(runUrl, langfuseUrl);
 
   const lines: string[] = [
     start,
+    ...(actionMetadata ? [actionMetadata] : []),
     failed
       ? `<details open><summary>${summary}</summary>`
       : `<details><summary>${summary}</summary>`,
     "",
   ];
 
-  const links = renderActionLinks(runUrl, langfuseUrl);
+  lines.push(`Script: \`${scriptLabelText}\``);
+  lines.push("");
 
   if (scriptResult.error) {
     lines.push(renderErrorCallout(scriptResult.error));
@@ -392,11 +380,6 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
     !normalized?.itemResults.length
   ) {
     lines.push("_No evaluations or items were returned._");
-    lines.push("");
-  }
-
-  if (links.length > 0) {
-    lines.push(links.join(" · "));
     lines.push("");
   }
 

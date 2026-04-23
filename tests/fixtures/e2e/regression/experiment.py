@@ -30,7 +30,7 @@ def _exact_match(*, output, expected_output, **kwargs):
 def experiment():
     langfuse = get_client()
     result = langfuse.run_experiment(
-        name="experiment-action e2e: regression fixture",
+        name="Regression fixture",
         data=[{"input": "regression", "expected_output": "REGRESSION"}],
         task=_task,
         evaluators=[_exact_match],

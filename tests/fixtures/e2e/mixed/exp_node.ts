@@ -35,7 +35,7 @@ export async function experiment() {
   try {
     const langfuse = new LangfuseClient();
     return await langfuse.experiment.run({
-      name: "experiment-action e2e: mixed dir (node)",
+      name: "Mixed dir (node)",
       data: [
         { input: "node", expectedOutput: "NODE" },
         { input: "typescript", expectedOutput: "TYPESCRIPT" },

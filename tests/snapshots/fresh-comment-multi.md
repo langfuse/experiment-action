@@ -3,14 +3,18 @@
 # <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#2)
 
 <!-- langfuse-experiment-action:overview:start -->
-| Experiment | Status | Score | Items | Actions |
-| --- | --- | --- | --- | --- |
-| Uppercase task | ✅ Pass | `avg_accuracy`: 1.000 | 2 | — |
-| experiment-action e2e: mixed dir (node) | ✅ Pass | `avg_accuracy`: 0.830 | 1 | — |
+| Experiment | Status | Actions |
+| --- | --- | --- |
+| Uppercase task | ✅ Pass | — |
+| Mixed dir (node) | ✅ Pass | — |
 <!-- langfuse-experiment-action:overview:end -->
 
+**Details**
+
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
-<details><summary>✅ Uppercase task (`tmp/experiment.py`)</summary>
+<details><summary>✅ Uppercase task</summary>
+
+Script: `tmp/experiment.py`
 
 | Score | Value |
 | --- | --- |
@@ -30,7 +34,9 @@
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fexperiment.py -->
 
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Fmixed%2Fexp_node.ts -->
-<details><summary>✅ experiment-action e2e: mixed dir (node) (`mixed/exp_node.ts`)</summary>
+<details><summary>✅ Mixed dir (node)</summary>
+
+Script: `mixed/exp_node.ts`
 
 | Score | Value |
 | --- | --- |

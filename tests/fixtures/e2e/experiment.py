@@ -45,7 +45,7 @@ def avg_accuracy(*, item_results, **kwargs):
 def experiment():
     langfuse = get_client()
     return langfuse.run_experiment(
-        name="experiment-action e2e: uppercase task",
+        name="Uppercase (py)",
         description="Deterministic string-transform task; no LLM involved.",
         data=LOCAL_DATA,
         task=uppercase_task,
