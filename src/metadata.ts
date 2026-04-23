@@ -86,6 +86,30 @@ export function buildWorkflowRunUrl(env: NodeJS.ProcessEnv = process.env): strin
   return `${server}/${repo}/actions/runs/${runId}`;
 }
 
+/**
+ * Build a GitHub blob URL for a script at the exact commit under test.
+ * Returns `null` when we can't safely map the script path into the checked-out
+ * workspace.
+ */
+export function buildScriptBlobUrl(
+  scriptPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const repo = env.GITHUB_REPOSITORY ?? "";
+  const sha = env.GITHUB_SHA ?? "";
+  const workspace = env.GITHUB_WORKSPACE ?? "";
+  if (!repo || !sha || !workspace) return null;
+
+  const relativePath = scriptPath.startsWith("/")
+    ? normalizeRepoPath(scriptPath, workspace)
+    : scriptPath.replace(/\\/g, "/");
+  if (!relativePath) return null;
+
+  const server = env.GITHUB_SERVER_URL ?? "https://github.com";
+  const encodedPath = relativePath.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `${server}/${repo}/blob/${sha}/${encodedPath}`;
+}
+
 // ---------------------------------------------------------------------------
 // Resolver helpers — kept below the DEFAULT_METADATA table so the table
 // itself stays scannable.
@@ -112,4 +136,13 @@ async function resolveJobUrlMetadata(
     runAttempt: env.GITHUB_RUN_ATTEMPT ?? "1",
     runnerName: env.RUNNER_NAME,
   });
+}
+
+function normalizeRepoPath(scriptPath: string, workspace: string): string | null {
+  const normalizedScript = scriptPath.replace(/\\/g, "/");
+  const normalizedWorkspace = workspace.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!normalizedWorkspace) return null;
+  if (normalizedScript === normalizedWorkspace) return null;
+  if (!normalizedScript.startsWith(`${normalizedWorkspace}/`)) return null;
+  return normalizedScript.slice(normalizedWorkspace.length + 1);
 }

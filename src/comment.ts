@@ -10,7 +10,7 @@ import {
 } from "@/experiment-result";
 import { makeOctokit } from "@/github/octokit";
 
-import { buildWorkflowRunUrl } from "./metadata";
+import { buildScriptBlobUrl, buildWorkflowRunUrl } from "./metadata";
 import type { ResolvedInputs, ScriptError, ScriptResult } from "./types";
 
 export interface RenderScriptSectionOptions {
@@ -18,6 +18,8 @@ export interface RenderScriptSectionOptions {
   result: ScriptResult;
   /** Optional link to the CI run this section belongs to. */
   runUrl?: string;
+  /** Optional link to this script at the exact tested Git SHA. */
+  scriptUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ function runMarker(runId: string): string {
 function sectionMarkers(scriptPath: string): { start: string; end: string } {
   const key = encodeURIComponent(scriptPath);
   return {
-    start: `<!-- langfuse-experiment-action:start script=${key} -->`,
+    start: `<!-- langfuse-experiment-action:start script=${key}`,
     end: `<!-- langfuse-experiment-action:end script=${key} -->`,
   };
 }
@@ -50,6 +52,13 @@ function overviewMarkers(): { start: string; end: string } {
   return {
     start: "<!-- langfuse-experiment-action:overview:start -->",
     end: "<!-- langfuse-experiment-action:overview:end -->",
+  };
+}
+
+function detailsMarkers(): { start: string; end: string } {
+  return {
+    start: "<!-- langfuse-experiment-action:details:start -->",
+    end: "<!-- langfuse-experiment-action:details:end -->",
   };
 }
 
@@ -131,7 +140,33 @@ function renderActionMetadata(runUrl?: string, langfuseUrl?: string): string | n
   const attrs: string[] = [];
   if (runUrl) attrs.push(`run=${encodeURIComponent(runUrl)}`);
   if (langfuseUrl) attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
-  return attrs.length > 0 ? `<!-- langfuse-experiment-action:actions ${attrs.join(" ")} -->` : null;
+  return attrs.length > 0 ? attrs.join(" ") : null;
+}
+
+function renderSectionStartMarker(
+  scriptPath: string,
+  opts: { runUrl?: string; langfuseUrl?: string } = {},
+): string {
+  const { start } = sectionMarkers(scriptPath);
+  const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl);
+  return `${start}${attrs ? ` ${attrs}` : ""} -->`;
+}
+
+function parseActionAttributes(raw?: string): { runUrl?: string; langfuseUrl?: string } {
+  const attrs = new Map(
+    (raw ?? "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => {
+        const [key, ...valueParts] = part.split("=");
+        return [key ?? "", valueParts.join("=")];
+      }),
+  );
+  const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
+  const langfuseUrl = attrs.get("langfuse")
+    ? decodeURIComponent(attrs.get("langfuse") ?? "")
+    : undefined;
+  return { runUrl, langfuseUrl };
 }
 
 function renderOverviewTable(metas: ParsedSectionOverview[]): string {
@@ -172,7 +207,7 @@ function replaceMarkedBlock(body: string, start: string, end: string, replacemen
 
 function parseSectionOverview(body: string): ParsedSectionOverview[] {
   const sections: ParsedSectionOverview[] = [];
-  const regex = /<!-- langfuse-experiment-action:start script=([^ ]+) -->/g;
+  const regex = /<!-- langfuse-experiment-action:start script=([^ >]+)([^>]*)-->/g;
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(body)) !== null) {
@@ -192,29 +227,22 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
     const firstSpace = summaryText.indexOf(" ");
     if (firstSpace === -1) continue;
 
-    const displayName = summaryText.slice(firstSpace + 1);
+    const displayName = summaryText
+      .slice(firstSpace + 1)
+      .replace(/ \(&lt;a href="[^"]+"&gt;Source&lt;\/a&gt;\)$/, "")
+      .replace(/ \(<a href="[^"]+">Source<\/a>\)$/, "");
     const scriptLabelText = scriptLabel(scriptPath, path.basename(scriptPath));
     const status = sectionBody.includes("> **Run failed —")
       ? "❌ Error"
       : sectionBody.match(/^> \*\*.+:\*\*/m)
         ? "❌ Regression"
         : "✅ Pass";
-    const actionMeta = sectionBody.match(
-      /<!-- langfuse-experiment-action:actions ([^>]+) -->/,
-    )?.[1];
-    const attrs = new Map(
-      (actionMeta ?? "")
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((part) => {
-          const [key, ...valueParts] = part.split("=");
-          return [key ?? "", valueParts.join("=")];
-        }),
+    const startAttrs = parseActionAttributes(match[2]?.trim());
+    const legacyActionMeta = parseActionAttributes(
+      sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1],
     );
-    const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
-    const langfuseUrl = attrs.get("langfuse")
-      ? decodeURIComponent(attrs.get("langfuse") ?? "")
-      : undefined;
+    const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
+    const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
 
     sections.push({
       scriptPath,
@@ -230,18 +258,21 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
 }
 
 function refreshOverview(body: string): string {
-  const { start, end } = overviewMarkers();
-  const withoutOverview = replaceMarkedBlock(body, start, end, "");
-  const metas = parseSectionOverview(withoutOverview);
-  if (metas.length === 0) return withoutOverview;
+  const { start: overviewStart, end: overviewEnd } = overviewMarkers();
+  const { start: detailsStart, end: detailsEnd } = detailsMarkers();
+  const withoutOverview = replaceMarkedBlock(body, overviewStart, overviewEnd, "");
+  const withoutLayout = replaceMarkedBlock(withoutOverview, detailsStart, detailsEnd, "");
+  const metas = parseSectionOverview(withoutLayout);
+  if (metas.length === 0) return withoutLayout;
 
-  const firstSectionIdx = withoutOverview.indexOf("<!-- langfuse-experiment-action:start script=");
-  if (firstSectionIdx === -1) return withoutOverview;
+  const firstSectionIdx = withoutLayout.indexOf("<!-- langfuse-experiment-action:start script=");
+  if (firstSectionIdx === -1) return withoutLayout;
 
-  const overviewBlock = [start, renderOverviewTable(metas), end].join("\n");
-  const before = withoutOverview.slice(0, firstSectionIdx).replace(/\s+$/, "");
-  const after = withoutOverview.slice(firstSectionIdx).replace(/^\s+/, "");
-  return `${before}\n\n${overviewBlock}\n\n**Details**\n\n${after}`
+  const overviewBlock = [overviewStart, renderOverviewTable(metas), overviewEnd].join("\n");
+  const detailsBlock = [detailsStart, "**Details**", detailsEnd].join("\n");
+  const before = withoutLayout.slice(0, firstSectionIdx).replace(/\s+$/, "");
+  const after = withoutLayout.slice(firstSectionIdx).replace(/^\s+/, "");
+  return `${before}\n\n${overviewBlock}\n\n${detailsBlock}\n\n${after}`
     .replace(/\n{3,}/g, "\n\n")
     .trimEnd()
     .concat("\n");
@@ -249,6 +280,11 @@ function refreshOverview(body: string): string {
 
 function renderSectionSummary(params: { icon: string; displayName: string }): string {
   return `${params.icon} ${params.displayName}`;
+}
+
+function renderSummarySourceLink(scriptUrl?: string): string {
+  if (!scriptUrl) return "";
+  return ` (<a href="${scriptUrl}">Source</a>)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,32 +350,25 @@ function renderErrorCallout(err: ScriptError): string {
  * something recognisable.
  */
 export function renderScriptSection(opts: RenderScriptSectionOptions): string {
-  const { result: scriptResult, runUrl } = opts;
-  const { start, end } = sectionMarkers(scriptResult.scriptPath);
+  const { result: scriptResult, runUrl, scriptUrl } = opts;
+  const { end } = sectionMarkers(scriptResult.scriptPath);
   const normalized = scriptResult.normalizedResult;
   const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
   const failed = scriptResult.error !== null;
   const displayName =
     (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
-  const scriptLabelText = scriptLabel(scriptResult.scriptPath, scriptResult.scriptName);
   const { icon } = statusSummary(scriptResult.error);
   const summary = renderSectionSummary({
     icon,
     displayName,
   });
-  const actionMetadata = renderActionMetadata(runUrl, langfuseUrl);
-
   const lines: string[] = [
-    start,
-    ...(actionMetadata ? [actionMetadata] : []),
+    renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl }),
     failed
-      ? `<details open><summary>${summary}</summary>`
-      : `<details><summary>${summary}</summary>`,
+      ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
+      : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
     "",
   ];
-
-  lines.push(`Script: \`${scriptLabelText}\``);
-  lines.push("");
 
   if (scriptResult.error) {
     lines.push(renderErrorCallout(scriptResult.error));
@@ -587,6 +616,7 @@ export async function publishExperimentComment(
     markdown: renderScriptSection({
       result,
       runUrl,
+      scriptUrl: buildScriptBlobUrl(result.scriptPath, env) ?? undefined,
     }),
   }));
 

@@ -8,13 +8,12 @@
 | broken.py | ❌ Error | [View GitHub Action Run](https://github.com/o/r/actions/runs/7/job/42) |
 <!-- langfuse-experiment-action:overview:end -->
 
+<!-- langfuse-experiment-action:details:start -->
 **Details**
+<!-- langfuse-experiment-action:details:end -->
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Fbroken.py -->
-<!-- langfuse-experiment-action:actions run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 -->
-<details open><summary>❌ broken.py</summary>
-
-Script: `tmp/broken.py`
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Fbroken.py run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 -->
+<details open><summary>❌ broken.py (<a href="https://github.com/o/r/blob/abc1234/tmp/broken.py">Source</a>)</summary>
 
 > **Run failed — ValueError:** bad input on line 17
 

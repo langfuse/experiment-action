@@ -67866,6 +67866,26 @@ function buildWorkflowRunUrl(env = process.env) {
     const server = env.GITHUB_SERVER_URL ?? "https://github.com";
     return `${server}/${repo}/actions/runs/${runId}`;
 }
+/**
+ * Build a GitHub blob URL for a script at the exact commit under test.
+ * Returns `null` when we can't safely map the script path into the checked-out
+ * workspace.
+ */
+function buildScriptBlobUrl(scriptPath, env = process.env) {
+    const repo = env.GITHUB_REPOSITORY ?? "";
+    const sha = env.GITHUB_SHA ?? "";
+    const workspace = env.GITHUB_WORKSPACE ?? "";
+    if (!repo || !sha || !workspace)
+        return null;
+    const relativePath = scriptPath.startsWith("/")
+        ? normalizeRepoPath(scriptPath, workspace)
+        : scriptPath.replace(/\\/g, "/");
+    if (!relativePath)
+        return null;
+    const server = env.GITHUB_SERVER_URL ?? "https://github.com";
+    const encodedPath = relativePath.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+    return `${server}/${repo}/blob/${sha}/${encodedPath}`;
+}
 // ---------------------------------------------------------------------------
 // Resolver helpers — kept below the DEFAULT_METADATA table so the table
 // itself stays scannable.
@@ -67890,6 +67910,17 @@ async function resolveJobUrlMetadata(env, opts) {
         runAttempt: env.GITHUB_RUN_ATTEMPT ?? "1",
         runnerName: env.RUNNER_NAME,
     });
+}
+function normalizeRepoPath(scriptPath, workspace) {
+    const normalizedScript = scriptPath.replace(/\\/g, "/");
+    const normalizedWorkspace = workspace.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!normalizedWorkspace)
+        return null;
+    if (normalizedScript === normalizedWorkspace)
+        return null;
+    if (!normalizedScript.startsWith(`${normalizedWorkspace}/`))
+        return null;
+    return normalizedScript.slice(normalizedWorkspace.length + 1);
 }
 
 ;// CONCATENATED MODULE: ./src/comment.ts
@@ -67918,7 +67949,7 @@ function runMarker(runId) {
 function sectionMarkers(scriptPath) {
     const key = encodeURIComponent(scriptPath);
     return {
-        start: `<!-- langfuse-experiment-action:start script=${key} -->`,
+        start: `<!-- langfuse-experiment-action:start script=${key}`,
         end: `<!-- langfuse-experiment-action:end script=${key} -->`,
     };
 }
@@ -67926,6 +67957,12 @@ function overviewMarkers() {
     return {
         start: "<!-- langfuse-experiment-action:overview:start -->",
         end: "<!-- langfuse-experiment-action:overview:end -->",
+    };
+}
+function detailsMarkers() {
+    return {
+        start: "<!-- langfuse-experiment-action:details:start -->",
+        end: "<!-- langfuse-experiment-action:details:end -->",
     };
 }
 /**
@@ -68002,7 +68039,26 @@ function renderActionMetadata(runUrl, langfuseUrl) {
         attrs.push(`run=${encodeURIComponent(runUrl)}`);
     if (langfuseUrl)
         attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
-    return attrs.length > 0 ? `<!-- langfuse-experiment-action:actions ${attrs.join(" ")} -->` : null;
+    return attrs.length > 0 ? attrs.join(" ") : null;
+}
+function renderSectionStartMarker(scriptPath, opts = {}) {
+    const { start } = sectionMarkers(scriptPath);
+    const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl);
+    return `${start}${attrs ? ` ${attrs}` : ""} -->`;
+}
+function parseActionAttributes(raw) {
+    const attrs = new Map((raw ?? "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => {
+        const [key, ...valueParts] = part.split("=");
+        return [key ?? "", valueParts.join("=")];
+    }));
+    const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
+    const langfuseUrl = attrs.get("langfuse")
+        ? decodeURIComponent(attrs.get("langfuse") ?? "")
+        : undefined;
+    return { runUrl, langfuseUrl };
 }
 function renderOverviewTable(metas) {
     const duplicates = new Map();
@@ -68036,7 +68092,7 @@ function replaceMarkedBlock(body, start, end, replacement) {
 }
 function parseSectionOverview(body) {
     const sections = [];
-    const regex = /<!-- langfuse-experiment-action:start script=([^ ]+) -->/g;
+    const regex = /<!-- langfuse-experiment-action:start script=([^ >]+)([^>]*)-->/g;
     let match;
     while ((match = regex.exec(body)) !== null) {
         const encodedScriptPath = match[1];
@@ -68055,25 +68111,20 @@ function parseSectionOverview(body) {
         const firstSpace = summaryText.indexOf(" ");
         if (firstSpace === -1)
             continue;
-        const displayName = summaryText.slice(firstSpace + 1);
+        const displayName = summaryText
+            .slice(firstSpace + 1)
+            .replace(/ \(&lt;a href="[^"]+"&gt;Source&lt;\/a&gt;\)$/, "")
+            .replace(/ \(<a href="[^"]+">Source<\/a>\)$/, "");
         const scriptLabelText = scriptLabel(scriptPath, external_node_path_namespaceObject.basename(scriptPath));
         const status = sectionBody.includes("> **Run failed —")
             ? "❌ Error"
             : sectionBody.match(/^> \*\*.+:\*\*/m)
                 ? "❌ Regression"
                 : "✅ Pass";
-        const actionMeta = sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1];
-        const attrs = new Map((actionMeta ?? "")
-            .split(/\s+/)
-            .filter(Boolean)
-            .map((part) => {
-            const [key, ...valueParts] = part.split("=");
-            return [key ?? "", valueParts.join("=")];
-        }));
-        const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
-        const langfuseUrl = attrs.get("langfuse")
-            ? decodeURIComponent(attrs.get("langfuse") ?? "")
-            : undefined;
+        const startAttrs = parseActionAttributes(match[2]?.trim());
+        const legacyActionMeta = parseActionAttributes(sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1]);
+        const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
+        const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
         sections.push({
             scriptPath,
             displayName,
@@ -68086,24 +68137,32 @@ function parseSectionOverview(body) {
     return sections;
 }
 function refreshOverview(body) {
-    const { start, end } = overviewMarkers();
-    const withoutOverview = replaceMarkedBlock(body, start, end, "");
-    const metas = parseSectionOverview(withoutOverview);
+    const { start: overviewStart, end: overviewEnd } = overviewMarkers();
+    const { start: detailsStart, end: detailsEnd } = detailsMarkers();
+    const withoutOverview = replaceMarkedBlock(body, overviewStart, overviewEnd, "");
+    const withoutLayout = replaceMarkedBlock(withoutOverview, detailsStart, detailsEnd, "");
+    const metas = parseSectionOverview(withoutLayout);
     if (metas.length === 0)
-        return withoutOverview;
-    const firstSectionIdx = withoutOverview.indexOf("<!-- langfuse-experiment-action:start script=");
+        return withoutLayout;
+    const firstSectionIdx = withoutLayout.indexOf("<!-- langfuse-experiment-action:start script=");
     if (firstSectionIdx === -1)
-        return withoutOverview;
-    const overviewBlock = [start, renderOverviewTable(metas), end].join("\n");
-    const before = withoutOverview.slice(0, firstSectionIdx).replace(/\s+$/, "");
-    const after = withoutOverview.slice(firstSectionIdx).replace(/^\s+/, "");
-    return `${before}\n\n${overviewBlock}\n\n**Details**\n\n${after}`
+        return withoutLayout;
+    const overviewBlock = [overviewStart, renderOverviewTable(metas), overviewEnd].join("\n");
+    const detailsBlock = [detailsStart, "**Details**", detailsEnd].join("\n");
+    const before = withoutLayout.slice(0, firstSectionIdx).replace(/\s+$/, "");
+    const after = withoutLayout.slice(firstSectionIdx).replace(/^\s+/, "");
+    return `${before}\n\n${overviewBlock}\n\n${detailsBlock}\n\n${after}`
         .replace(/\n{3,}/g, "\n\n")
         .trimEnd()
         .concat("\n");
 }
 function renderSectionSummary(params) {
     return `${params.icon} ${params.displayName}`;
+}
+function renderSummarySourceLink(scriptUrl) {
+    if (!scriptUrl)
+        return "";
+    return ` (<a href="${scriptUrl}">Source</a>)`;
 }
 // ---------------------------------------------------------------------------
 // Rendering
@@ -68156,29 +68215,24 @@ function renderErrorCallout(err) {
  * something recognisable.
  */
 function renderScriptSection(opts) {
-    const { result: scriptResult, runUrl } = opts;
-    const { start, end } = sectionMarkers(scriptResult.scriptPath);
+    const { result: scriptResult, runUrl, scriptUrl } = opts;
+    const { end } = sectionMarkers(scriptResult.scriptPath);
     const normalized = scriptResult.normalizedResult;
     const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
     const failed = scriptResult.error !== null;
     const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
-    const scriptLabelText = scriptLabel(scriptResult.scriptPath, scriptResult.scriptName);
     const { icon } = statusSummary(scriptResult.error);
     const summary = renderSectionSummary({
         icon,
         displayName,
     });
-    const actionMetadata = renderActionMetadata(runUrl, langfuseUrl);
     const lines = [
-        start,
-        ...(actionMetadata ? [actionMetadata] : []),
+        renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl }),
         failed
-            ? `<details open><summary>${summary}</summary>`
-            : `<details><summary>${summary}</summary>`,
+            ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
+            : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
         "",
     ];
-    lines.push(`Script: \`${scriptLabelText}\``);
-    lines.push("");
     if (scriptResult.error) {
         lines.push(renderErrorCallout(scriptResult.error));
         lines.push("");
@@ -68361,6 +68415,7 @@ async function publishExperimentComment(opts) {
         markdown: renderScriptSection({
             result,
             runUrl,
+            scriptUrl: buildScriptBlobUrl(result.scriptPath, env) ?? undefined,
         }),
     }));
     const runAttempt = Number(env.GITHUB_RUN_ATTEMPT ?? "1");

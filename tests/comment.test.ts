@@ -29,11 +29,13 @@ function renderFullCommentSnapshot(
   result: ScriptResult,
   opts: {
     runUrl?: string;
+    scriptUrl?: string;
   } = {},
 ): string {
   const section = renderScriptSection({
     result,
     runUrl: opts.runUrl,
+    scriptUrl: opts.scriptUrl,
   });
   return buildFreshCommentBody(SNAPSHOT_RUN_ID, SNAPSHOT_TITLE, [section]);
 }
@@ -135,6 +137,7 @@ describe("renderScriptSection snapshots", () => {
       },
       {
         runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
+        scriptUrl: "https://github.com/owner/repo/blob/abc1234/tmp/experiment.py",
       },
     );
     expect(body).toContain(
@@ -148,6 +151,7 @@ describe("renderScriptSection snapshots", () => {
   it("omits the Langfuse link when project id is missing", () => {
     const body = renderFullCommentSnapshot(pyPassingResult, {
       runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
+      scriptUrl: "https://github.com/owner/repo/blob/abc1234/tmp/experiment.py",
     });
     expect(body).not.toContain("View in Langfuse");
   });
@@ -155,6 +159,7 @@ describe("renderScriptSection snapshots", () => {
   it("regression with a captured result (scores + items still rendered)", async () => {
     const body = renderFullCommentSnapshot(regressionWithResult, {
       runUrl: "https://github.com/o/r/actions/runs/7/job/42",
+      scriptUrl: "https://github.com/o/r/blob/abc1234/tmp/reg.py",
     });
     await expect(body).toMatchFileSnapshot(snap("regression.md"));
   });
@@ -162,6 +167,7 @@ describe("renderScriptSection snapshots", () => {
   it("unrelated error: minimal CAUTION alert, no tables", async () => {
     const body = renderFullCommentSnapshot(unrelatedError, {
       runUrl: "https://github.com/o/r/actions/runs/7/job/42",
+      scriptUrl: "https://github.com/o/r/blob/abc1234/tmp/broken.py",
     });
     await expect(body).toMatchFileSnapshot(snap("unrelated-error.md"));
   });
@@ -173,20 +179,27 @@ describe("renderScriptSection snapshots", () => {
     expect(section).toMatch(/^<!-- langfuse-experiment-action:start script=/);
     // No SDK name → summary uses the script filename as the display name.
     expect(section).toContain("<details open><summary>❌ broken.py</summary>");
-    expect(section).toContain("Script: `tmp/broken.py`");
   });
 
-  it("shows the script path inside the expanded body", () => {
+  it("shows only the display name in the summary by default", () => {
     const section = renderScriptSection({ result: pyPassingResult });
     expect(section).toContain("<details><summary>✅ Uppercase task</summary>");
-    expect(section).toContain("Script: `tmp/experiment.py`");
+  });
+
+  it("links the source in the summary when a blob URL is provided", () => {
+    const section = renderScriptSection({
+      result: pyPassingResult,
+      scriptUrl: "https://github.com/owner/repo/blob/abc1234/tmp/experiment.py",
+    });
+    expect(section).toContain(
+      '<details><summary>✅ Uppercase task (<a href="https://github.com/owner/repo/blob/abc1234/tmp/experiment.py">Source</a>)</summary>',
+    );
   });
 
   it("recovers the user-provided name from `runName` when the SDK only exposes that (JS SDK)", () => {
     const section = renderScriptSection({ result: tsPassingResult });
     // Timestamp suffix stripped → user's original `name` back in the summary.
     expect(section).toContain("✅ Mixed dir (node)</summary>");
-    expect(section).toContain("Script: `mixed/exp_node.ts`");
     expect(section).not.toContain("2026-04-20T");
   });
 

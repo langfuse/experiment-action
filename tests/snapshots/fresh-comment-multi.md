@@ -9,12 +9,12 @@
 | Mixed dir (node) | ✅ Pass | — |
 <!-- langfuse-experiment-action:overview:end -->
 
+<!-- langfuse-experiment-action:details:start -->
 **Details**
+<!-- langfuse-experiment-action:details:end -->
 
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
 <details><summary>✅ Uppercase task</summary>
-
-Script: `tmp/experiment.py`
 
 | Score | Value |
 | --- | --- |
@@ -35,8 +35,6 @@ Script: `tmp/experiment.py`
 
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Fmixed%2Fexp_node.ts -->
 <details><summary>✅ Mixed dir (node)</summary>
-
-Script: `mixed/exp_node.ts`
 
 | Score | Value |
 | --- | --- |

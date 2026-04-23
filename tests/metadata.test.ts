@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildWorkflowRunUrl, resolveDefaultMetadata } from "@/metadata";
+import { buildScriptBlobUrl, buildWorkflowRunUrl, resolveDefaultMetadata } from "@/metadata";
 
 describe("resolveDefaultMetadata", () => {
   it("derives entries from GITHUB_* env vars and prefixes them with `langfuse.`", async () => {
@@ -116,5 +116,33 @@ describe("buildWorkflowRunUrl", () => {
     expect(buildWorkflowRunUrl({ GITHUB_REPOSITORY: "a/b" })).toBeNull();
     expect(buildWorkflowRunUrl({ GITHUB_RUN_ID: "42" })).toBeNull();
     expect(buildWorkflowRunUrl({})).toBeNull();
+  });
+});
+
+describe("buildScriptBlobUrl", () => {
+  it("builds a blob URL for scripts under GITHUB_WORKSPACE", () => {
+    expect(
+      buildScriptBlobUrl(
+        "/home/runner/work/experiment-action/experiment-action/tests/fixtures/e2e/experiment.py",
+        {
+          GITHUB_REPOSITORY: "langfuse/experiment-action",
+          GITHUB_SERVER_URL: "https://github.com",
+          GITHUB_SHA: "abc123def456",
+          GITHUB_WORKSPACE: "/home/runner/work/experiment-action/experiment-action",
+        },
+      ),
+    ).toBe(
+      "https://github.com/langfuse/experiment-action/blob/abc123def456/tests/fixtures/e2e/experiment.py",
+    );
+  });
+
+  it("returns null when the script path is outside the workspace", () => {
+    expect(
+      buildScriptBlobUrl("/tmp/experiment.py", {
+        GITHUB_REPOSITORY: "langfuse/experiment-action",
+        GITHUB_SHA: "abc123",
+        GITHUB_WORKSPACE: "/home/runner/work/experiment-action/experiment-action",
+      }),
+    ).toBeNull();
   });
 });
