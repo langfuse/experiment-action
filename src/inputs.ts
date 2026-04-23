@@ -4,11 +4,11 @@ import * as v from "valibot";
 import type { ResolvedInputs } from "./types";
 
 const TRUE_VALUES = new Set(["true", "yes", "1", "y"]);
-const FALSE_VALUES = new Set(["false", "no", "0", "n", ""]);
+const FALSE_VALUES = new Set(["false", "no", "0", "n"]);
 
 /**
- * Parses "true|yes|1|y" / "false|no|0|n|<empty>" into a boolean, with a
- * default when the input doesn't match. `core.getInput` only ever returns a
+ * Parses "true|yes|1|y" / "false|no|0|n" into a boolean, with a default when
+ * the input is omitted or doesn't match. `core.getInput` only ever returns a
  * string, so there's no `undefined` case to worry about — `""` means "not
  * set" (→ use default).
  */
@@ -17,6 +17,7 @@ function booleanFromString(defaultValue: boolean) {
     v.string(),
     v.transform((raw): boolean => {
       const normalised = raw.trim().toLowerCase();
+      if (normalised === "") return defaultValue;
       if (TRUE_VALUES.has(normalised)) return true;
       if (FALSE_VALUES.has(normalised)) return false;
       core.warning(`Could not parse boolean value "${raw}", falling back to ${defaultValue}.`);
@@ -87,7 +88,8 @@ const InputsSchema = v.object({
   datasetName: OptionalTrimmedString,
   datasetVersion: OptionalTrimmedString,
   customMetadata: v.pipe(v.string(), v.transform(parseMetadata)),
-  shouldFailOnError: booleanFromString(true),
+  shouldFailOnRegression: booleanFromString(true),
+  shouldFailOnScriptError: booleanFromString(true),
   shouldCommentOnPr: booleanFromString(true),
   pythonSdkVersion: stringWithDefault("latest"),
   jsSdkVersion: stringWithDefault("latest"),
@@ -111,7 +113,8 @@ export function resolveInputs(): ResolvedInputs {
     datasetName: core.getInput("dataset_name"),
     datasetVersion: core.getInput("dataset_version"),
     customMetadata: core.getInput("experiment_metadata"),
-    shouldFailOnError: core.getInput("should_fail_on_error"),
+    shouldFailOnRegression: core.getInput("should_fail_on_regression"),
+    shouldFailOnScriptError: core.getInput("should_fail_on_script_error"),
     shouldCommentOnPr: core.getInput("should_comment_on_pr"),
     pythonSdkVersion: core.getInput("python_sdk_version"),
     jsSdkVersion: core.getInput("js_sdk_version"),

@@ -31,8 +31,12 @@ inputs:
     description: "Additional metadata to attach to the experiment run. Multiline, one `key=value` per line. Shown under the Metadata column in the Langfuse UI."
     required: false
 
-  should_fail_on_error:
-    description: "Fail the CI job when the experiment raises an error (including RegressionError)."
+  should_fail_on_regression:
+    description: "Fail the CI job when an experiment raises `RegressionError`."
+    required: false
+    default: "true"
+  should_fail_on_script_error:
+    description: "Fail the CI job when an experiment script crashes or raises a non-regression error."
     required: false
     default: "true"
   should_comment_on_pr:

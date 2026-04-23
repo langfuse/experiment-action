@@ -17,7 +17,8 @@ export async function run(): Promise<void> {
       `dataset=${inputs.datasetName ?? "<none>"} ` +
       `pythonSdkVersion=${inputs.pythonSdkVersion} jsSdkVersion=${inputs.jsSdkVersion} ` +
       `shouldSkipSdkInstallation=${inputs.shouldSkipSdkInstallation} ` +
-      `shouldFailOnError=${inputs.shouldFailOnError} ` +
+      `shouldFailOnRegression=${inputs.shouldFailOnRegression} ` +
+      `shouldFailOnScriptError=${inputs.shouldFailOnScriptError} ` +
       `shouldCommentOnPr=${inputs.shouldCommentOnPr}`,
   );
 
@@ -76,8 +77,12 @@ export async function run(): Promise<void> {
     }
   }
 
-  const anyFailed = results.some((r) => r.error !== null);
-  core.debug(`Any failures: ${anyFailed}`);
+  const regressions = results.filter((r) => r.error?.isRegression).length;
+  const scriptErrors = results.filter((r) => r.error && !r.error.isRegression).length;
+  const anyFailed = regressions + scriptErrors > 0;
+  core.debug(
+    `Any failures: ${anyFailed} (regressions=${regressions} scriptErrors=${scriptErrors})`,
+  );
 
   setOutputs({
     results,
@@ -88,12 +93,14 @@ export async function run(): Promise<void> {
     await publishExperimentComment({ inputs, results, metadata });
   }
 
-  if (anyFailed && inputs.shouldFailOnError) {
-    const regressions = results.filter((r) => r.error?.isRegression).length;
-    const errors = results.filter((r) => r.error && !r.error.isRegression).length;
+  const shouldFailJob =
+    (regressions > 0 && inputs.shouldFailOnRegression) ||
+    (scriptErrors > 0 && inputs.shouldFailOnScriptError);
+
+  if (shouldFailJob) {
     core.setFailed(
-      `Experiment run failed: ${regressions} regression(s), ${errors} other error(s). ` +
-        `Set should_fail_on_error: false to treat these as warnings.`,
+      `Experiment run failed: ${regressions} regression(s), ${scriptErrors} script error(s). ` +
+        `Set should_fail_on_regression and/or should_fail_on_script_error to false to treat these as warnings.`,
     );
   }
 }

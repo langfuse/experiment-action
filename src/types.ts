@@ -13,7 +13,8 @@ export interface ResolvedInputs {
 
   customMetadata: Record<string, string>;
 
-  shouldFailOnError: boolean;
+  shouldFailOnRegression: boolean;
+  shouldFailOnScriptError: boolean;
   shouldCommentOnPr: boolean;
 
   pythonSdkVersion: string;

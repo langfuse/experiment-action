@@ -92,7 +92,8 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 | `dataset_name`                 | no       |                              | Dataset to run against. If omitted, the user script is expected to select its own dataset.                                                                      |
 | `dataset_version`              | no       |                              | Pin the experiment to a specific dataset version.                                                                                                               |
 | `experiment_metadata`          | no       |                              | Additional metadata as a multiline `key=value` string. Shown under the Metadata column in the Langfuse UI.                                                      |
-| `should_fail_on_error`         | no       | `true`                       | Fail CI when the experiment raises.                                                                                                                             |
+| `should_fail_on_regression`    | no       | `true`                       | Fail CI when an experiment raises `RegressionError`.                                                                                                            |
+| `should_fail_on_script_error`  | no       | `true`                       | Fail CI when an experiment script crashes or raises a non-regression error.                                                                                     |
 | `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                |
 | `python_sdk_version`           | no       | `latest`                     | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                |
 | `js_sdk_version`               | no       | `latest`                     | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                                           |
@@ -171,8 +172,9 @@ export async function experiment() {
 ```
 
 The action serializes the returned value to JSON and exposes it through the
-`result_json` output. If the function raises, the error is captured and — if
-`should_fail_on_error` is `true` — the CI job fails.
+`result_json` output. If the function raises, the error is captured and the
+CI job fails depending on `should_fail_on_regression` /
+`should_fail_on_script_error`.
 
 ### Consuming the result in later steps
 

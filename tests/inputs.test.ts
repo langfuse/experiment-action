@@ -1,6 +1,27 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { parseMetadata } from "@/inputs";
+const { mockInputs, setSecret, debug, warning } = vi.hoisted(() => ({
+  mockInputs: {} as Record<string, string>,
+  setSecret: vi.fn(),
+  debug: vi.fn(),
+  warning: vi.fn(),
+}));
+
+vi.mock("@actions/core", () => ({
+  getInput: vi.fn((name: string) => mockInputs[name] ?? ""),
+  setSecret,
+  debug,
+  warning,
+}));
+
+import { parseMetadata, resolveInputs } from "@/inputs";
+
+beforeEach(() => {
+  for (const key of Object.keys(mockInputs)) delete mockInputs[key];
+  setSecret.mockClear();
+  debug.mockClear();
+  warning.mockClear();
+});
 
 describe("parseMetadata", () => {
   it("returns an empty object for empty input", () => {
@@ -32,5 +53,35 @@ describe("parseMetadata", () => {
 
   it("skips empty keys", () => {
     expect(parseMetadata("=value\nenv=prod")).toEqual({ env: "prod" });
+  });
+});
+
+describe("resolveInputs", () => {
+  it("defaults both failure-mode booleans to true", () => {
+    Object.assign(mockInputs, {
+      experiment_path: "experiments/",
+      langfuse_public_key: "pk",
+      langfuse_secret_key: "sk",
+    });
+
+    const inputs = resolveInputs();
+
+    expect(inputs.shouldFailOnRegression).toBe(true);
+    expect(inputs.shouldFailOnScriptError).toBe(true);
+  });
+
+  it("parses both failure-mode booleans independently", () => {
+    Object.assign(mockInputs, {
+      experiment_path: "experiments/",
+      langfuse_public_key: "pk",
+      langfuse_secret_key: "sk",
+      should_fail_on_regression: "false",
+      should_fail_on_script_error: "true",
+    });
+
+    const inputs = resolveInputs();
+
+    expect(inputs.shouldFailOnRegression).toBe(false);
+    expect(inputs.shouldFailOnScriptError).toBe(true);
   });
 });

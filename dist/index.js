@@ -67922,6 +67922,12 @@ function sectionMarkers(scriptPath) {
         end: `<!-- langfuse-experiment-action:end script=${key} -->`,
     };
 }
+function overviewMarkers() {
+    return {
+        start: "<!-- langfuse-experiment-action:overview:start -->",
+        end: "<!-- langfuse-experiment-action:overview:end -->",
+    };
+}
 /**
  * Human-readable label for a script file. Extensions are kept (distinguishes
  * `experiment.py` from `experiment.ts`) and the immediate parent directory
@@ -67974,6 +67980,133 @@ function formatScore(v) {
     if (v == null)
         return "—";
     return cell(v, 32);
+}
+function statusSummary(err) {
+    if (!err)
+        return { icon: "✅", status: "✅ Pass" };
+    if (err.isRegression)
+        return { icon: "❌", status: "❌ Regression" };
+    return { icon: "❌", status: "❌ Error" };
+}
+function renderActionLinks(runUrl, langfuseUrl) {
+    const actions = [];
+    if (runUrl)
+        actions.push(`[View GitHub Action Run](${runUrl})`);
+    if (langfuseUrl)
+        actions.push(`[View in Langfuse](${langfuseUrl})`);
+    return actions;
+}
+function renderOverviewTable(metas) {
+    const duplicates = new Map();
+    for (const meta of metas) {
+        duplicates.set(meta.displayName, (duplicates.get(meta.displayName) ?? 0) + 1);
+    }
+    const rows = metas.map((meta) => {
+        const experiment = (duplicates.get(meta.displayName) ?? 0) > 1
+            ? `${cell(meta.displayName, 48)} (\`${cell(meta.scriptLabel, 32)}\`)`
+            : cell(meta.displayName, 56);
+        return [
+            experiment,
+            cell(meta.status, 20),
+            cell(meta.scoreSummary, 56),
+            String(meta.itemCount),
+            renderActionLinks(meta.runUrl, meta.langfuseUrl).join(" · ") || "—",
+        ];
+    });
+    return [
+        "| Experiment | Status | Score | Items | Actions |",
+        "| --- | --- | --- | --- | --- |",
+        ...rows.map((row) => `| ${row.join(" | ")} |`),
+    ].join("\n");
+}
+function replaceMarkedBlock(body, start, end, replacement) {
+    const startIdx = body.indexOf(start);
+    const endIdx = body.indexOf(end, startIdx >= 0 ? startIdx : 0);
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx)
+        return body;
+    const before = body.slice(0, startIdx).replace(/\s+$/, "");
+    const after = body.slice(endIdx + end.length).replace(/^\s+/, "");
+    return `${before}\n\n${replacement}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+function summarizeParsedScores(rows) {
+    if (rows.length === 0)
+        return "—";
+    if (rows.length <= 2) {
+        return rows.map((row) => `\`${row.name}\`: ${row.value}`).join(", ");
+    }
+    const [first] = rows;
+    return `\`${first?.name}\`: ${first?.value} (+${rows.length - 1} more)`;
+}
+function parseSectionOverview(body) {
+    const sections = [];
+    const regex = /<!-- langfuse-experiment-action:start script=([^ ]+) -->/g;
+    let match;
+    while ((match = regex.exec(body)) !== null) {
+        const encodedScriptPath = match[1];
+        if (!encodedScriptPath)
+            continue;
+        const scriptPath = decodeURIComponent(encodedScriptPath);
+        const { end } = sectionMarkers(scriptPath);
+        const sectionStart = match.index;
+        const sectionEnd = body.indexOf(end, sectionStart);
+        if (sectionEnd === -1)
+            continue;
+        const sectionBody = body.slice(sectionStart, sectionEnd + end.length);
+        const summaryMatch = sectionBody.match(/<details(?: open)?><summary>(.+?) \(`([^`]+)`\)<\/summary>/s);
+        if (!summaryMatch)
+            continue;
+        const [, summaryPrefix, scriptLabel] = summaryMatch;
+        if (!summaryPrefix || !scriptLabel)
+            continue;
+        const firstSpace = summaryPrefix.indexOf(" ");
+        if (firstSpace === -1)
+            continue;
+        const displayName = summaryPrefix.slice(firstSpace + 1);
+        const evaluations = Array.from(sectionBody.matchAll(/^\| `([^`]+)` \| ([^|]+) \|$/gm), (row) => ({
+            name: row[1] ?? "",
+            value: row[2]?.trim() ?? "",
+        })).filter((row) => row.name.length > 0);
+        const scoreSummary = summarizeParsedScores(evaluations);
+        const itemCount = Number(sectionBody.match(/<details><summary>Item results \((\d+)\)<\/summary>/)?.[1] ?? "0");
+        const status = sectionBody.includes("[!WARNING]")
+            ? "❌ Regression"
+            : sectionBody.includes("[!CAUTION]")
+                ? "❌ Error"
+                : "✅ Pass";
+        const runUrl = sectionBody.match(/\[View GitHub Action Run\]\(([^)]+)\)/)?.[1];
+        const langfuseUrl = sectionBody.match(/\[View in Langfuse\]\(([^)]+)\)/)?.[1];
+        sections.push({
+            scriptPath,
+            displayName,
+            scriptLabel,
+            status,
+            scoreSummary,
+            itemCount,
+            runUrl,
+            langfuseUrl,
+        });
+    }
+    return sections;
+}
+function refreshOverview(body) {
+    const { start, end } = overviewMarkers();
+    const withoutOverview = replaceMarkedBlock(body, start, end, "");
+    const metas = parseSectionOverview(withoutOverview);
+    if (metas.length === 0)
+        return withoutOverview;
+    const firstSectionIdx = withoutOverview.indexOf("<!-- langfuse-experiment-action:start script=");
+    if (firstSectionIdx === -1)
+        return withoutOverview;
+    const overviewBlock = [start, renderOverviewTable(metas), end].join("\n");
+    const before = withoutOverview.slice(0, firstSectionIdx).replace(/\s+$/, "");
+    const after = withoutOverview.slice(firstSectionIdx).replace(/^\s+/, "");
+    return `${before}\n\n${overviewBlock}\n\n${after}`
+        .replace(/\n{3,}/g, "\n\n")
+        .trimEnd()
+        .concat("\n");
+}
+function renderSectionSummary(params) {
+    return `${params.icon} ${params.displayName} (\`${params.scriptLabel}\`)`;
 }
 // ---------------------------------------------------------------------------
 // Rendering
@@ -68029,32 +68162,24 @@ function renderScriptSection(opts) {
     const { result: scriptResult, runUrl } = opts;
     const { start, end } = sectionMarkers(scriptResult.scriptPath);
     const normalized = scriptResult.normalizedResult;
-    // Prefer the SDK-provided experiment name; fall back to the script file
-    // name so a crash with no result still has something recognisable.
-    const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
+    const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
     const failed = scriptResult.error !== null;
-    const icon = failed ? "❌" : "✅";
-    const links = [];
-    if (runUrl)
-        links.push(`[View run](${runUrl})`);
-    const langfuseUrl = scriptResult.langfuseExperimentUrl;
-    if (langfuseUrl) {
-        links.push(`[View on Langfuse](${langfuseUrl})`);
-    }
-    // Icon carries the pass/fail signal — no separate "Passed"/"Failed"
-    // word. The script path is always shown in parens so the heading
-    // disambiguates between scripts whose SDK names happen to collide and
-    // tells you *where* the experiment came from.
+    const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
+    const scriptLabelText = scriptLabel(scriptResult.scriptPath, scriptResult.scriptName);
+    const { icon } = statusSummary(scriptResult.error);
+    const summary = renderSectionSummary({
+        icon,
+        displayName,
+        scriptLabel: scriptLabelText,
+    });
     const lines = [
         start,
-        "",
-        `## ${icon} ${displayName} (\`${scriptLabel(scriptResult.scriptPath, scriptResult.scriptName)}\`)`,
+        failed
+            ? `<details open><summary>${summary}</summary>`
+            : `<details><summary>${summary}</summary>`,
         "",
     ];
-    if (links.length > 0) {
-        lines.push(links.join(" · "));
-        lines.push("");
-    }
+    const links = renderActionLinks(runUrl, langfuseUrl);
     if (scriptResult.error) {
         lines.push(renderErrorCallout(scriptResult.error));
         lines.push("");
@@ -68067,26 +68192,36 @@ function renderScriptSection(opts) {
         const total = normalized.itemResults.length;
         const visible = normalized.itemResults.slice(0, MAX_ITEMS_SHOWN);
         const hiddenCount = total - visible.length;
-        const summary = total === 1 ? "1 item" : `${total} items`;
-        lines.push(`<details><summary>${summary}</summary>`);
+        lines.push(`<details><summary>Item results (${total})</summary>`);
         lines.push("");
         lines.push(renderItemsTable(visible));
         if (hiddenCount > 0) {
             lines.push("");
-            lines.push(`_Showing first ${visible.length} of ${total} — view the full set in Langfuse._`);
+            if (langfuseUrl) {
+                lines.push(`_Showing first ${visible.length} of ${total} — [View in Langfuse](${langfuseUrl}) for the full set._`);
+            }
+            else {
+                lines.push(`_Showing first ${visible.length} of ${total}._`);
+            }
         }
         lines.push("");
         lines.push("</details>");
+        lines.push("");
     }
     if (!scriptResult.error &&
         !normalized?.runEvaluations.length &&
         !normalized?.itemResults.length) {
         lines.push("_No evaluations or items were returned._");
-    }
-    if (lines[lines.length - 1] !== "")
         lines.push("");
+    }
+    if (links.length > 0) {
+        lines.push(links.join(" · "));
+        lines.push("");
+    }
+    lines.push("</details>");
+    lines.push("<br>");
     lines.push(end);
-    return lines.join("\n");
+    return `${lines.join("\n").trimEnd()}\n`;
 }
 // ---------------------------------------------------------------------------
 // Comment body assembly
@@ -68114,7 +68249,7 @@ function renderCommentTitle(opts = {}) {
 }
 function buildFreshCommentBody(runId, titleOpts, sections) {
     const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");
-    return `${body.trimEnd()}\n`;
+    return refreshOverview(`${body.trimEnd()}\n`);
 }
 /**
  * Replace an existing section keyed on `scriptPath` in place, or append it
@@ -68122,13 +68257,9 @@ function buildFreshCommentBody(runId, titleOpts, sections) {
  */
 function upsertSection(existingBody, scriptPath, section) {
     const { start, end } = sectionMarkers(scriptPath);
-    const startIdx = existingBody.indexOf(start);
-    const endIdx = existingBody.indexOf(end, startIdx >= 0 ? startIdx : 0);
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-        const before = existingBody.slice(0, startIdx).replace(/\s+$/, "");
-        const after = existingBody.slice(endIdx + end.length).replace(/^\s+/, "");
-        return `${before}\n\n${section}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-    }
+    const updated = replaceMarkedBlock(existingBody, start, end, section);
+    if (updated !== existingBody)
+        return updated;
     return `${existingBody.replace(/\s+$/, "")}\n\n${section}\n`;
 }
 /**
@@ -68184,6 +68315,7 @@ async function postPrComment(opts) {
         for (const { scriptPath, markdown } of sections) {
             body = upsertSection(body, scriptPath, markdown);
         }
+        body = refreshOverview(body);
         if (match) {
             await octokit.rest.issues.updateComment({
                 owner: ctx.repo.owner,
@@ -76116,7 +76248,7 @@ function unwrap(schema) {
 
 
 const TRUE_VALUES = new Set(["true", "yes", "1", "y"]);
-const FALSE_VALUES = new Set(["false", "no", "0", "n", ""]);
+const FALSE_VALUES = new Set(["false", "no", "0", "n"]);
 /**
  * Parses "true|yes|1|y" / "false|no|0|n|<empty>" into a boolean, with a
  * default when the input doesn't match. `core.getInput` only ever returns a
@@ -76126,6 +76258,8 @@ const FALSE_VALUES = new Set(["false", "no", "0", "n", ""]);
 function booleanFromString(defaultValue) {
     return pipe(string(), transform((raw) => {
         const normalised = raw.trim().toLowerCase();
+        if (normalised === "")
+            return defaultValue;
         if (TRUE_VALUES.has(normalised))
             return true;
         if (FALSE_VALUES.has(normalised))
@@ -76181,7 +76315,8 @@ const InputsSchema = object({
     datasetName: OptionalTrimmedString,
     datasetVersion: OptionalTrimmedString,
     customMetadata: pipe(string(), transform(parseMetadata)),
-    shouldFailOnError: booleanFromString(true),
+    shouldFailOnRegression: booleanFromString(true),
+    shouldFailOnScriptError: booleanFromString(true),
     shouldCommentOnPr: booleanFromString(true),
     pythonSdkVersion: stringWithDefault("latest"),
     jsSdkVersion: stringWithDefault("latest"),
@@ -76201,7 +76336,8 @@ function resolveInputs() {
         datasetName: core.getInput("dataset_name"),
         datasetVersion: core.getInput("dataset_version"),
         customMetadata: core.getInput("experiment_metadata"),
-        shouldFailOnError: core.getInput("should_fail_on_error"),
+        shouldFailOnRegression: core.getInput("should_fail_on_regression"),
+        shouldFailOnScriptError: core.getInput("should_fail_on_script_error"),
         shouldCommentOnPr: core.getInput("should_comment_on_pr"),
         pythonSdkVersion: core.getInput("python_sdk_version"),
         jsSdkVersion: core.getInput("js_sdk_version"),
@@ -76373,7 +76509,8 @@ async function run() {
         `dataset=${inputs.datasetName ?? "<none>"} ` +
         `pythonSdkVersion=${inputs.pythonSdkVersion} jsSdkVersion=${inputs.jsSdkVersion} ` +
         `shouldSkipSdkInstallation=${inputs.shouldSkipSdkInstallation} ` +
-        `shouldFailOnError=${inputs.shouldFailOnError} ` +
+        `shouldFailOnRegression=${inputs.shouldFailOnRegression} ` +
+        `shouldFailOnScriptError=${inputs.shouldFailOnScriptError} ` +
         `shouldCommentOnPr=${inputs.shouldCommentOnPr}`);
     const discovered = await discoverScripts(inputs.experimentPath);
     core.info(`Discovered ${discovered.length} experiment script(s): ` +
@@ -76425,8 +76562,10 @@ async function run() {
             core.info(`${script.path}: passed in ${last.durationMs}ms`);
         }
     }
-    const anyFailed = results.some((r) => r.error !== null);
-    core.debug(`Any failures: ${anyFailed}`);
+    const regressions = results.filter((r) => r.error?.isRegression).length;
+    const scriptErrors = results.filter((r) => r.error && !r.error.isRegression).length;
+    const anyFailed = regressions + scriptErrors > 0;
+    core.debug(`Any failures: ${anyFailed} (regressions=${regressions} scriptErrors=${scriptErrors})`);
     setOutputs({
         results,
         actionMetadata: metadata,
@@ -76434,11 +76573,11 @@ async function run() {
     if (inputs.shouldCommentOnPr) {
         await publishExperimentComment({ inputs, results, metadata });
     }
-    if (anyFailed && inputs.shouldFailOnError) {
-        const regressions = results.filter((r) => r.error?.isRegression).length;
-        const errors = results.filter((r) => r.error && !r.error.isRegression).length;
-        core.setFailed(`Experiment run failed: ${regressions} regression(s), ${errors} other error(s). ` +
-            `Set should_fail_on_error: false to treat these as warnings.`);
+    const shouldFailJob = (regressions > 0 && inputs.shouldFailOnRegression) ||
+        (scriptErrors > 0 && inputs.shouldFailOnScriptError);
+    if (shouldFailJob) {
+        core.setFailed(`Experiment run failed: ${regressions} regression(s), ${scriptErrors} script error(s). ` +
+            `Set should_fail_on_regression and/or should_fail_on_script_error to false to treat these as warnings.`);
     }
 }
 run().catch((err) => {
