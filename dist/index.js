@@ -76250,8 +76250,8 @@ function unwrap(schema) {
 const TRUE_VALUES = new Set(["true", "yes", "1", "y"]);
 const FALSE_VALUES = new Set(["false", "no", "0", "n"]);
 /**
- * Parses "true|yes|1|y" / "false|no|0|n|<empty>" into a boolean, with a
- * default when the input doesn't match. `core.getInput` only ever returns a
+ * Parses "true|yes|1|y" / "false|no|0|n" into a boolean, with a default when
+ * the input is omitted or doesn't match. `core.getInput` only ever returns a
  * string, so there's no `undefined` case to worry about — `""` means "not
  * set" (→ use default).
  */

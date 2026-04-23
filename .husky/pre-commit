@@ -9,6 +9,14 @@ if ! command -v pnpm &> /dev/null; then
     exit 1
 fi
 
+echo "🔧 Rebuilding dist/..."
+if ! pnpm run build; then
+    echo "❌ Build failed. Please fix the reported issues before committing."
+    exit 1
+fi
+
+git add dist
+
 if ! pnpm precommit:check; then
     echo "❌ Pre-commit checks failed. Please fix the reported issues before committing."
     exit 1
