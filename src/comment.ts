@@ -46,6 +46,13 @@ function sectionMarkers(scriptPath: string): { start: string; end: string } {
   };
 }
 
+function overviewMarkers(): { start: string; end: string } {
+  return {
+    start: "<!-- langfuse-experiment-action:overview:start -->",
+    end: "<!-- langfuse-experiment-action:overview:end -->",
+  };
+}
+
 /**
  * Human-readable label for a script file. Extensions are kept (distinguishes
  * `experiment.py` from `experiment.ts`) and the immediate parent directory
@@ -96,6 +103,166 @@ function formatScore(v: NormalizedExperimentResult["runEvaluations"][number]["va
   if (typeof v === "number") return v.toFixed(3);
   if (v == null) return "—";
   return cell(v, 32);
+}
+
+function statusSummary(err: ScriptError | null): { icon: string; status: string } {
+  if (!err) return { icon: "✅", status: "✅ Pass" };
+  if (err.isRegression) return { icon: "❌", status: "❌ Regression" };
+  return { icon: "❌", status: "❌ Error" };
+}
+
+interface ParsedSectionOverview {
+  scriptPath: string;
+  displayName: string;
+  scriptLabel: string;
+  status: string;
+  scoreSummary: string;
+  itemCount: number;
+  runUrl?: string;
+  langfuseUrl?: string;
+}
+
+function renderActionLinks(runUrl?: string, langfuseUrl?: string): string[] {
+  const actions: string[] = [];
+  if (runUrl) actions.push(`[View GitHub Action Run](${runUrl})`);
+  if (langfuseUrl) actions.push(`[View in Langfuse](${langfuseUrl})`);
+  return actions;
+}
+
+function renderOverviewTable(metas: ParsedSectionOverview[]): string {
+  const duplicates = new Map<string, number>();
+  for (const meta of metas) {
+    duplicates.set(meta.displayName, (duplicates.get(meta.displayName) ?? 0) + 1);
+  }
+
+  const rows = metas.map((meta) => {
+    const experiment =
+      (duplicates.get(meta.displayName) ?? 0) > 1
+        ? `${cell(meta.displayName, 48)} (\`${cell(meta.scriptLabel, 32)}\`)`
+        : cell(meta.displayName, 56);
+
+    return [
+      experiment,
+      cell(meta.status, 20),
+      cell(meta.scoreSummary, 56),
+      String(meta.itemCount),
+      renderActionLinks(meta.runUrl, meta.langfuseUrl).join(" · ") || "—",
+    ];
+  });
+
+  return [
+    "| Experiment | Status | Score | Items | Actions |",
+    "| --- | --- | --- | --- | --- |",
+    ...rows.map((row) => `| ${row.join(" | ")} |`),
+  ].join("\n");
+}
+
+function replaceMarkedBlock(body: string, start: string, end: string, replacement: string): string {
+  const startIdx = body.indexOf(start);
+  const endIdx = body.indexOf(end, startIdx >= 0 ? startIdx : 0);
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return body;
+
+  const before = body.slice(0, startIdx).replace(/\s+$/, "");
+  const after = body.slice(endIdx + end.length).replace(/^\s+/, "");
+  return `${before}\n\n${replacement}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+function summarizeParsedScores(rows: Array<{ name: string; value: string }>): string {
+  if (rows.length === 0) return "—";
+  if (rows.length <= 2) {
+    return rows.map((row) => `\`${row.name}\`: ${row.value}`).join(", ");
+  }
+
+  const [first] = rows;
+  return `\`${first?.name}\`: ${first?.value} (+${rows.length - 1} more)`;
+}
+
+function parseSectionOverview(body: string): ParsedSectionOverview[] {
+  const sections: ParsedSectionOverview[] = [];
+  const regex = /<!-- langfuse-experiment-action:start script=([^ ]+) -->/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(body)) !== null) {
+    const encodedScriptPath = match[1];
+    if (!encodedScriptPath) continue;
+
+    const scriptPath = decodeURIComponent(encodedScriptPath);
+    const { end } = sectionMarkers(scriptPath);
+    const sectionStart = match.index;
+    const sectionEnd = body.indexOf(end, sectionStart);
+    if (sectionEnd === -1) continue;
+
+    const sectionBody = body.slice(sectionStart, sectionEnd + end.length);
+    const summaryMatch = sectionBody.match(
+      /<details(?: open)?><summary>(.+?) \(`([^`]+)`\)<\/summary>/s,
+    );
+    if (!summaryMatch) continue;
+
+    const [, summaryPrefix, scriptLabel] = summaryMatch;
+    if (!summaryPrefix || !scriptLabel) continue;
+
+    const firstSpace = summaryPrefix.indexOf(" ");
+    if (firstSpace === -1) continue;
+
+    const displayName = summaryPrefix.slice(firstSpace + 1);
+    const evaluations = Array.from(
+      sectionBody.matchAll(/^\| `([^`]+)` \| ([^|]+) \|$/gm),
+      (row) => ({
+        name: row[1] ?? "",
+        value: row[2]?.trim() ?? "",
+      }),
+    ).filter((row) => row.name.length > 0);
+    const scoreSummary = summarizeParsedScores(evaluations);
+    const itemCount = Number(
+      sectionBody.match(/<details><summary>Item results \((\d+)\)<\/summary>/)?.[1] ?? "0",
+    );
+    const status = sectionBody.includes("[!WARNING]")
+      ? "❌ Regression"
+      : sectionBody.includes("[!CAUTION]")
+        ? "❌ Error"
+        : "✅ Pass";
+    const runUrl = sectionBody.match(/\[View GitHub Action Run\]\(([^)]+)\)/)?.[1];
+    const langfuseUrl = sectionBody.match(/\[View in Langfuse\]\(([^)]+)\)/)?.[1];
+
+    sections.push({
+      scriptPath,
+      displayName,
+      scriptLabel,
+      status,
+      scoreSummary,
+      itemCount,
+      runUrl,
+      langfuseUrl,
+    });
+  }
+
+  return sections;
+}
+
+function refreshOverview(body: string): string {
+  const { start, end } = overviewMarkers();
+  const withoutOverview = replaceMarkedBlock(body, start, end, "");
+  const metas = parseSectionOverview(withoutOverview);
+  if (metas.length === 0) return withoutOverview;
+
+  const firstSectionIdx = withoutOverview.indexOf("<!-- langfuse-experiment-action:start script=");
+  if (firstSectionIdx === -1) return withoutOverview;
+
+  const overviewBlock = [start, renderOverviewTable(metas), end].join("\n");
+  const before = withoutOverview.slice(0, firstSectionIdx).replace(/\s+$/, "");
+  const after = withoutOverview.slice(firstSectionIdx).replace(/^\s+/, "");
+  return `${before}\n\n${overviewBlock}\n\n${after}`
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd()
+    .concat("\n");
+}
+
+function renderSectionSummary(params: {
+  icon: string;
+  displayName: string;
+  scriptLabel: string;
+}): string {
+  return `${params.icon} ${params.displayName} (\`${params.scriptLabel}\`)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,37 +330,28 @@ function renderErrorCallout(err: ScriptError): string {
 export function renderScriptSection(opts: RenderScriptSectionOptions): string {
   const { result: scriptResult, runUrl } = opts;
   const { start, end } = sectionMarkers(scriptResult.scriptPath);
-
   const normalized = scriptResult.normalizedResult;
-  // Prefer the SDK-provided experiment name; fall back to the script file
-  // name so a crash with no result still has something recognisable.
+  const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
+  const failed = scriptResult.error !== null;
   const displayName =
     (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
+  const scriptLabelText = scriptLabel(scriptResult.scriptPath, scriptResult.scriptName);
+  const { icon } = statusSummary(scriptResult.error);
+  const summary = renderSectionSummary({
+    icon,
+    displayName,
+    scriptLabel: scriptLabelText,
+  });
 
-  const failed = scriptResult.error !== null;
-  const icon = failed ? "❌" : "✅";
-
-  const links: string[] = [];
-  if (runUrl) links.push(`[View run](${runUrl})`);
-  const langfuseUrl = scriptResult.langfuseExperimentUrl;
-  if (langfuseUrl) {
-    links.push(`[View on Langfuse](${langfuseUrl})`);
-  }
-
-  // Icon carries the pass/fail signal — no separate "Passed"/"Failed"
-  // word. The script path is always shown in parens so the heading
-  // disambiguates between scripts whose SDK names happen to collide and
-  // tells you *where* the experiment came from.
   const lines: string[] = [
     start,
-    "",
-    `## ${icon} ${displayName} (\`${scriptLabel(scriptResult.scriptPath, scriptResult.scriptName)}\`)`,
+    failed
+      ? `<details open><summary>${summary}</summary>`
+      : `<details><summary>${summary}</summary>`,
     "",
   ];
-  if (links.length > 0) {
-    lines.push(links.join(" · "));
-    lines.push("");
-  }
+
+  const links = renderActionLinks(runUrl, langfuseUrl);
 
   if (scriptResult.error) {
     lines.push(renderErrorCallout(scriptResult.error));
@@ -210,16 +368,22 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
     const visible = normalized.itemResults.slice(0, MAX_ITEMS_SHOWN);
     const hiddenCount = total - visible.length;
 
-    const summary = total === 1 ? "1 item" : `${total} items`;
-    lines.push(`<details><summary>${summary}</summary>`);
+    lines.push(`<details><summary>Item results (${total})</summary>`);
     lines.push("");
     lines.push(renderItemsTable(visible));
     if (hiddenCount > 0) {
       lines.push("");
-      lines.push(`_Showing first ${visible.length} of ${total} — view the full set in Langfuse._`);
+      if (langfuseUrl) {
+        lines.push(
+          `_Showing first ${visible.length} of ${total} — [View in Langfuse](${langfuseUrl}) for the full set._`,
+        );
+      } else {
+        lines.push(`_Showing first ${visible.length} of ${total}._`);
+      }
     }
     lines.push("");
     lines.push("</details>");
+    lines.push("");
   }
 
   if (
@@ -228,11 +392,18 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
     !normalized?.itemResults.length
   ) {
     lines.push("_No evaluations or items were returned._");
+    lines.push("");
   }
 
-  if (lines[lines.length - 1] !== "") lines.push("");
+  if (links.length > 0) {
+    lines.push(links.join(" · "));
+    lines.push("");
+  }
+
+  lines.push("</details>");
+  lines.push("<br>");
   lines.push(end);
-  return lines.join("\n");
+  return `${lines.join("\n").trimEnd()}\n`;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +444,7 @@ export function buildFreshCommentBody(
   sections: string[],
 ): string {
   const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");
-  return `${body.trimEnd()}\n`;
+  return refreshOverview(`${body.trimEnd()}\n`);
 }
 
 /**
@@ -282,15 +453,8 @@ export function buildFreshCommentBody(
  */
 export function upsertSection(existingBody: string, scriptPath: string, section: string): string {
   const { start, end } = sectionMarkers(scriptPath);
-  const startIdx = existingBody.indexOf(start);
-  const endIdx = existingBody.indexOf(end, startIdx >= 0 ? startIdx : 0);
-
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    const before = existingBody.slice(0, startIdx).replace(/\s+$/, "");
-    const after = existingBody.slice(endIdx + end.length).replace(/^\s+/, "");
-    return `${before}\n\n${section}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-  }
-
+  const updated = replaceMarkedBlock(existingBody, start, end, section);
+  if (updated !== existingBody) return updated;
   return `${existingBody.replace(/\s+$/, "")}\n\n${section}\n`;
 }
 
@@ -367,6 +531,7 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
     for (const { scriptPath, markdown } of sections) {
       body = upsertSection(body, scriptPath, markdown);
     }
+    body = refreshOverview(body);
 
     if (match) {
       await octokit.rest.issues.updateComment({

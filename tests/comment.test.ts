@@ -138,9 +138,10 @@ describe("renderScriptSection snapshots", () => {
       },
     );
     expect(body).toContain(
-      "[View on Langfuse](http://localhost:3000/project/7a88fb47-b4e2-43b8-a06c-a5ce950dc53a" +
+      "[View in Langfuse](http://localhost:3000/project/7a88fb47-b4e2-43b8-a06c-a5ce950dc53a" +
         "/experiments/results?baseline=0f212f9182320769)",
     );
+    expect(body).toContain("| Experiment | Status | Score | Items | Actions |");
     await expect(body).toMatchFileSnapshot(snap("passing.md"));
   });
 
@@ -148,7 +149,7 @@ describe("renderScriptSection snapshots", () => {
     const body = renderFullCommentSnapshot(pyPassingResult, {
       runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
     });
-    expect(body).not.toContain("View on Langfuse");
+    expect(body).not.toContain("View in Langfuse");
   });
 
   it("regression with a captured result (scores + items still rendered)", async () => {
@@ -165,27 +166,27 @@ describe("renderScriptSection snapshots", () => {
     await expect(body).toMatchFileSnapshot(snap("unrelated-error.md"));
   });
 
-  it("falls back to the script filename in the heading when no SDK name", async () => {
+  it("falls back to the script filename in the summary when no SDK name", async () => {
     const section = renderScriptSection({
       result: { ...unrelatedError, normalizedResult: null },
     });
     expect(section).toMatch(/^<!-- langfuse-experiment-action:start script=/);
-    // No SDK name → heading uses the script filename as the display name,
+    // No SDK name → summary uses the script filename as the display name,
     // with the script path repeated in parens for disambiguation.
-    expect(section).toContain("## ❌ broken.py (`tmp/broken.py`)");
+    expect(section).toContain("<details open><summary>❌ broken.py (`tmp/broken.py`)</summary>");
   });
 
-  it("always appends the script path to the heading, even with an SDK name", () => {
+  it("always appends the script path to the summary, even with an SDK name", () => {
     const section = renderScriptSection({ result: pyPassingResult });
-    expect(section).toContain("## ✅ Uppercase task (`tmp/experiment.py`)");
+    expect(section).toContain(
+      "<details><summary>✅ Uppercase task (`tmp/experiment.py`)</summary>",
+    );
   });
 
   it("recovers the user-provided name from `runName` when the SDK only exposes that (JS SDK)", () => {
     const section = renderScriptSection({ result: tsPassingResult });
-    // Timestamp suffix stripped → user's original `name` back in the heading.
-    expect(section).toContain(
-      "## ✅ experiment-action e2e: mixed dir (node) (`mixed/exp_node.ts`)",
-    );
+    // Timestamp suffix stripped → user's original `name` back in the summary.
+    expect(section).toContain("✅ experiment-action e2e: mixed dir (node) (`mixed/exp_node.ts`)");
     expect(section).not.toContain("2026-04-20T");
   });
 
@@ -209,13 +210,13 @@ describe("renderScriptSection snapshots", () => {
     });
 
     // Summary reflects the *full* count.
-    expect(section).toContain("<details><summary>60 items</summary>");
+    expect(section).toContain("<details><summary>Item results (60)</summary>");
     // Only the first 50 data rows land in the table.
     expect(section).toContain("| 1 | input-0 | expected-0 | expected-0 | 1.000 |");
     expect(section).toContain("| 50 | input-49 | expected-49 | expected-49 | 1.000 |");
     expect(section).not.toContain("| 51 | input-50 |");
     // Truncation note tells the reader where to get the rest.
-    expect(section).toContain("_Showing first 50 of 60 — view the full set in Langfuse._");
+    expect(section).toContain("_Showing first 50 of 60._");
   });
 });
 

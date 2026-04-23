@@ -2,15 +2,21 @@
 
 # <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#2)
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
+<!-- langfuse-experiment-action:overview:start -->
+| Experiment | Status | Score | Items | Actions |
+| --- | --- | --- | --- | --- |
+| Uppercase task | ✅ Pass | `avg_accuracy`: 1.000 | 2 | — |
+| experiment-action e2e: mixed dir (node) | ✅ Pass | `avg_accuracy`: 0.830 | 1 | — |
+<!-- langfuse-experiment-action:overview:end -->
 
-## ✅ Uppercase task (`tmp/experiment.py`)
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
+<details><summary>✅ Uppercase task (`tmp/experiment.py`)</summary>
 
 | Score | Value |
 | --- | --- |
 | `avg_accuracy` | 1.000 |
 
-<details><summary>2 items</summary>
+<details><summary>Item results (2)</summary>
 
 | Item | Input | Expected | Output | exact_match |
 | --- | --- | --- | --- | --- |
@@ -19,17 +25,18 @@
 
 </details>
 
+</details>
+<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fexperiment.py -->
 
 <!-- langfuse-experiment-action:start script=%2Ftmp%2Fmixed%2Fexp_node.ts -->
-
-## ✅ experiment-action e2e: mixed dir (node) (`mixed/exp_node.ts`)
+<details><summary>✅ experiment-action e2e: mixed dir (node) (`mixed/exp_node.ts`)</summary>
 
 | Score | Value |
 | --- | --- |
 | `avg_accuracy` | 0.830 |
 
-<details><summary>1 item</summary>
+<details><summary>Item results (1)</summary>
 
 | Item | Input | Expected | Output | exact_match |
 | --- | --- | --- | --- | --- |
@@ -37,4 +44,6 @@
 
 </details>
 
+</details>
+<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fmixed%2Fexp_node.ts -->

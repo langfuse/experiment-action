@@ -2,15 +2,20 @@
 
 # <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234`
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
+<!-- langfuse-experiment-action:overview:start -->
+| Experiment | Status | Score | Items | Actions |
+| --- | --- | --- | --- | --- |
+| Uppercase task | ✅ Pass | `avg_accuracy`: 1.000 | 2 | — |
+<!-- langfuse-experiment-action:overview:end -->
 
-## ✅ Uppercase task (`tmp/experiment.py`)
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py -->
+<details><summary>✅ Uppercase task (`tmp/experiment.py`)</summary>
 
 | Score | Value |
 | --- | --- |
 | `avg_accuracy` | 1.000 |
 
-<details><summary>2 items</summary>
+<details><summary>Item results (2)</summary>
 
 | Item | Input | Expected | Output | exact_match |
 | --- | --- | --- | --- | --- |
@@ -19,4 +24,6 @@
 
 </details>
 
+</details>
+<br>
 <!-- langfuse-experiment-action:end script=%2Ftmp%2Fexperiment.py -->
