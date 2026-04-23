@@ -3,8 +3,12 @@ import * as path from "node:path";
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 
+import {
+  experimentDisplayName,
+  type NormalizedExperimentItemResult,
+  type NormalizedExperimentResult,
+} from "@/experiment-result";
 import { makeOctokit } from "@/github/octokit";
-import { buildExperimentResultsUrl, resolveProjectId } from "@/langfuse/project";
 
 import { buildWorkflowRunUrl } from "./metadata";
 import type { ResolvedInputs, ScriptError, ScriptResult } from "./types";
@@ -14,13 +18,6 @@ export interface RenderScriptSectionOptions {
   result: ScriptResult;
   /** Optional link to the CI run this section belongs to. */
   runUrl?: string;
-  /**
-   * Langfuse base URL + resolved project id. Both must be set for the
-   * "View on Langfuse" link to appear in the subtitle; if either is
-   * missing, we silently omit it.
-   */
-  langfuseBaseUrl?: string;
-  langfuseProjectId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,83 +46,6 @@ function sectionMarkers(scriptPath: string): { start: string; end: string } {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Result normalization — the Python SDK serializes fields as snake_case
-// (`run_evaluations`, `item_results`), the JS SDK uses camelCase. Everything
-// below reads from either shape.
-// ---------------------------------------------------------------------------
-
-interface Evaluation {
-  name: string;
-  value: number | string | boolean | null;
-  comment?: string | null;
-}
-
-interface ItemResult {
-  /** Identifier of the dataset item, if the SDK exposed one. */
-  itemId?: string | null;
-  input?: unknown;
-  expectedOutput?: unknown;
-  output?: unknown;
-  evaluations: Evaluation[];
-}
-
-interface NormalizedResult {
-  name?: string;
-  /** Langfuse-side experiment id — used to build the UI link. */
-  experimentId?: string;
-  runEvaluations: Evaluation[];
-  itemResults: ItemResult[];
-}
-
-function pickField<T = unknown>(obj: unknown, ...keys: string[]): T | undefined {
-  if (!obj || typeof obj !== "object") return undefined;
-  const record = obj as Record<string, unknown>;
-  for (const k of keys) {
-    if (k in record && record[k] !== undefined) return record[k] as T;
-  }
-  return undefined;
-}
-
-function asEvaluation(raw: unknown): Evaluation | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const name = typeof r.name === "string" ? r.name : null;
-  if (!name) return null;
-  const value = r.value as Evaluation["value"];
-  const comment = typeof r.comment === "string" ? r.comment : null;
-  return { name, value: value ?? null, comment };
-}
-
-function asItemResult(raw: unknown): ItemResult | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const item = (r.item ?? {}) as Record<string, unknown>;
-
-  const itemId =
-    pickField<string>(item, "id") ??
-    pickField<string>(r, "datasetItemId", "dataset_item_id") ??
-    null;
-  const expectedOutput = pickField(item, "expectedOutput", "expected_output");
-  const input = item.input;
-  const output = r.output;
-  const evaluations = Array.isArray(r.evaluations)
-    ? r.evaluations.map(asEvaluation).filter((e): e is Evaluation => e !== null)
-    : [];
-
-  return { itemId, input, expectedOutput, output, evaluations };
-}
-
-/**
- * The JS SDK's `ExperimentResult` doesn't expose a bare `name` field — only
- * `runName`, which is `"<user-provided name> - <ISO timestamp>"`. Recover
- * the user's original name by stripping the trailing timestamp. If the
- * format doesn't match, use `runName` verbatim.
- */
-function stripTimestampSuffix(runName: string): string {
-  return runName.replace(/ - \d{4}-\d{2}-\d{2}T[^ ]+$/, "") || runName;
-}
-
 /**
  * Human-readable label for a script file. Extensions are kept (distinguishes
  * `experiment.py` from `experiment.ts`) and the immediate parent directory
@@ -136,25 +56,6 @@ function scriptLabel(scriptPath: string, scriptName: string): string {
   const parent = path.basename(path.dirname(scriptPath));
   if (!parent || parent === "." || parent === "/") return scriptName;
   return `${parent}/${scriptName}`;
-}
-
-function normalizeResult(raw: unknown): NormalizedResult | null {
-  if (!raw || typeof raw !== "object") return null;
-  const record = raw as Record<string, unknown>;
-  let name = pickField<string>(record, "name");
-  if (!name) {
-    const runName = pickField<string>(record, "runName", "run_name");
-    if (runName) name = stripTimestampSuffix(runName);
-  }
-  const experimentId = pickField<string>(record, "experimentId", "experiment_id");
-  const runEvalsRaw = pickField<unknown[]>(record, "runEvaluations", "run_evaluations") ?? [];
-  const itemResultsRaw = pickField<unknown[]>(record, "itemResults", "item_results") ?? [];
-  return {
-    name,
-    experimentId,
-    runEvaluations: runEvalsRaw.map(asEvaluation).filter((e): e is Evaluation => e !== null),
-    itemResults: itemResultsRaw.map(asItemResult).filter((r): r is ItemResult => r !== null),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +92,7 @@ function cell(v: unknown, maxLen = CELL_MAX): string {
   return s || "—";
 }
 
-function formatScore(v: Evaluation["value"]): string {
+function formatScore(v: NormalizedExperimentResult["runEvaluations"][number]["value"]): string {
   if (typeof v === "number") return v.toFixed(3);
   if (v == null) return "—";
   return cell(v, 32);
@@ -201,28 +102,33 @@ function formatScore(v: Evaluation["value"]): string {
 // Rendering
 // ---------------------------------------------------------------------------
 
-function renderScoresTable(evaluations: Evaluation[]): string {
+function renderScoresTable(evaluations: NormalizedExperimentResult["runEvaluations"]): string {
   if (evaluations.length === 0) return "";
   const rows = evaluations.map((e) => `| \`${e.name}\` | ${formatScore(e.value)} |`);
   return ["| Score | Value |", "| --- | --- |", ...rows].join("\n");
 }
 
-function renderItemsTable(itemResults: ItemResult[]): string {
+function renderItemsTable(itemResults: NormalizedExperimentItemResult[]): string {
   if (itemResults.length === 0) return "";
   const evaluatorNames = Array.from(
     new Set(itemResults.flatMap((r) => r.evaluations.map((e) => e.name))),
   );
 
-  const header = ["Item", "Input", "Output", ...evaluatorNames];
+  const header = ["Item", "Input", "Expected", "Output", ...evaluatorNames];
   const rows = itemResults.map((r, idx) => {
-    const label = r.itemId ?? String(idx + 1);
+    const label = typeof r.item.id === "string" ? r.item.id : String(idx + 1);
     const scoreByName = new Map(r.evaluations.map((e) => [e.name, e.value]));
     const cells = [
       cell(label, 24),
       cell(r.input),
+      cell(r.expectedOutput),
       cell(r.output),
       ...evaluatorNames.map((n) =>
-        scoreByName.has(n) ? formatScore(scoreByName.get(n) as Evaluation["value"]) : "—",
+        scoreByName.has(n)
+          ? formatScore(
+              scoreByName.get(n) as NormalizedExperimentResult["runEvaluations"][number]["value"],
+            )
+          : "—",
       ),
     ];
     return `| ${cells.join(" | ")} |`;
@@ -250,30 +156,27 @@ function renderErrorCallout(err: ScriptError): string {
  * Render one `ScriptResult` as a complete PR-comment section, wrapped in
  * start/end markers keyed on the script path.
  *
- * Heading comes from `ExperimentResult.name` when the SDK produced one; on
- * a crash (no result) we fall back to the script filename so the section
- * still shows something recognisable.
+ * Heading comes from the normalized SDK-style `runName`; on a crash (no
+ * result) we fall back to the script filename so the section still shows
+ * something recognisable.
  */
 export function renderScriptSection(opts: RenderScriptSectionOptions): string {
-  const { result: scriptResult, runUrl, langfuseBaseUrl, langfuseProjectId } = opts;
+  const { result: scriptResult, runUrl } = opts;
   const { start, end } = sectionMarkers(scriptResult.scriptPath);
 
-  const normalized = normalizeResult(scriptResult.result);
+  const normalized = scriptResult.normalizedResult;
   // Prefer the SDK-provided experiment name; fall back to the script file
   // name so a crash with no result still has something recognisable.
-  const displayName = normalized?.name ?? scriptResult.scriptName;
+  const displayName =
+    (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
 
   const failed = scriptResult.error !== null;
   const icon = failed ? "❌" : "✅";
 
   const links: string[] = [];
   if (runUrl) links.push(`[View run](${runUrl})`);
-  if (langfuseBaseUrl && langfuseProjectId && normalized?.experimentId) {
-    const langfuseUrl = buildExperimentResultsUrl({
-      baseUrl: langfuseBaseUrl,
-      projectId: langfuseProjectId,
-      experimentId: normalized.experimentId,
-    });
+  const langfuseUrl = scriptResult.langfuseExperimentUrl;
+  if (langfuseUrl) {
     links.push(`[View on Langfuse](${langfuseUrl})`);
   }
 
@@ -361,7 +264,7 @@ export function renderCommentTitle(opts: CommentTitleOptions = {}): string {
   if (opts.shortSha) parts.push(`\`${opts.shortSha}\``);
   if (opts.runAttempt && opts.runAttempt > 1) parts.push(`(#${opts.runAttempt})`);
   const suffix = parts.length > 0 ? `: ${parts.join(" ")}` : "";
-  return `# ${icon} Langfuse Experiment Results${suffix}`;
+  return `# ${icon} Experiment Results${suffix}`;
 }
 
 export function buildFreshCommentBody(
@@ -516,9 +419,8 @@ export interface PublishExperimentCommentOptions {
 /**
  * Render + upsert the PR comment for the current action invocation.
  *
- * Resolves the Langfuse project id (for "View on Langfuse" links), picks
- * the best CI-run URL available (job URL → workflow-run URL), builds one
- * section per `ScriptResult`, and hands the batch to `postPrComment`.
+ * Picks the best CI-run URL available (job URL → workflow-run URL), builds
+ * one section per `ScriptResult`, and hands the batch to `postPrComment`.
  */
 export async function publishExperimentComment(
   opts: PublishExperimentCommentOptions,
@@ -532,22 +434,11 @@ export async function publishExperimentComment(
   const jobUrl = metadata["langfuse.github_job_url"];
   const runUrl = jobUrl ?? buildWorkflowRunUrl(env) ?? undefined;
 
-  // One API call resolves the Langfuse project id; `null` means we skip
-  // the Langfuse link but everything else still renders.
-  const langfuseProjectId =
-    (await resolveProjectId({
-      baseUrl: inputs.langfuseBaseUrl,
-      publicKey: inputs.langfusePublicKey,
-      secretKey: inputs.langfuseSecretKey,
-    })) ?? undefined;
-
   const sections = results.map((result) => ({
     scriptPath: result.scriptPath,
     markdown: renderScriptSection({
       result,
       runUrl,
-      langfuseBaseUrl: inputs.langfuseBaseUrl,
-      langfuseProjectId,
     }),
   }));
 

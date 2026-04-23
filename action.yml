@@ -66,7 +66,7 @@ inputs:
 
 outputs:
   result_json:
-    description: "JSON-encoded array of experiment results, one entry per script."
+    description: "Versioned JSON envelope with action metadata and normalized experiment results. See README for the schema."
   failed:
     description: "'true' if any experiment script errored or raised a regression, else 'false'."
 

@@ -1,7 +1,7 @@
 import * as path from "node:path";
 
 import type { RunnerEnv } from "@/executors/shared";
-import type { Runtime, ScriptResult } from "@/types";
+import type { RawScriptResult, Runtime } from "@/types";
 
 /**
  * An experiment script discovered on disk. Subclasses implement `run()` for
@@ -12,7 +12,7 @@ export abstract class ExperimentScript {
 
   abstract readonly runtime: Runtime;
 
-  abstract run(env: RunnerEnv): Promise<ScriptResult>;
+  abstract run(env: RunnerEnv): Promise<RawScriptResult>;
 
   /** The script's filename without directory — used in PR comments and logs. */
   get name(): string {

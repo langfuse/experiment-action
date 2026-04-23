@@ -3,10 +3,12 @@ import * as core from "@actions/core";
 import { publishExperimentComment } from "./comment";
 import { discoverScripts } from "./discover";
 import { setupExperimentScripts } from "./executors";
+import { normalizeExperimentResult, resolveLangfuseExperimentUrl } from "./experiment-result";
 import { resolveInputs } from "./inputs";
+import { resolveProjectId } from "./langfuse/project";
 import { resolveDefaultMetadata } from "./metadata";
 import { setOutputs } from "./output";
-import type { ScriptResult } from "./types";
+import type { RawScriptResult, ScriptResult } from "./types";
 
 export async function run(): Promise<void> {
   const inputs = resolveInputs();
@@ -35,13 +37,33 @@ export async function run(): Promise<void> {
     token: inputs.githubToken,
     custom: inputs.customMetadata,
   });
+  const langfuseProjectId =
+    (await resolveProjectId({
+      baseUrl: inputs.langfuseBaseUrl,
+      publicKey: inputs.langfusePublicKey,
+      secretKey: inputs.langfuseSecretKey,
+    })) ?? undefined;
   const runnerEnv = { inputs, metadata };
 
   const results: ScriptResult[] = [];
   for (const script of scripts) {
     core.startGroup(`Running ${script.path}`);
     try {
-      results.push(await script.run(runnerEnv));
+      const rawResult: RawScriptResult = await script.run(runnerEnv);
+      const normalizedResult = normalizeExperimentResult(rawResult.result);
+      results.push({
+        scriptPath: rawResult.scriptPath,
+        scriptName: rawResult.scriptName,
+        runtime: rawResult.runtime,
+        error: rawResult.error,
+        durationMs: rawResult.durationMs,
+        normalizedResult,
+        langfuseExperimentUrl: resolveLangfuseExperimentUrl({
+          result: normalizedResult,
+          baseUrl: inputs.langfuseBaseUrl,
+          projectId: langfuseProjectId,
+        }),
+      });
     } finally {
       core.endGroup();
     }
@@ -57,7 +79,10 @@ export async function run(): Promise<void> {
   const anyFailed = results.some((r) => r.error !== null);
   core.debug(`Any failures: ${anyFailed}`);
 
-  setOutputs(results);
+  setOutputs({
+    results,
+    actionMetadata: metadata,
+  });
 
   if (inputs.shouldCommentOnPr) {
     await publishExperimentComment({ inputs, results, metadata });

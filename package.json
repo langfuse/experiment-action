@@ -10,15 +10,17 @@
   "packageManager": "pnpm@9.12.3",
   "scripts": {
     "build": "ncc build src/main.ts -o dist --source-map --license licenses.txt && node scripts/copy-wrappers.mjs",
+    "generate:schema": "node --import tsx scripts/generate-result-json-schema.ts",
+    "check:schema": "node --import tsx scripts/check-result-json-schema.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src tests",
-    "lint:fix": "eslint src tests --fix",
+    "lint": "eslint src tests \"scripts/**/*.ts\"",
+    "lint:fix": "eslint src tests \"scripts/**/*.ts\" --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check-dist": "pnpm run build && git diff --exit-code -- dist",
-    "precommit:check": "pnpm run lint && pnpm run typecheck && pnpm run format:check",
+    "precommit:check": "pnpm run lint && pnpm run typecheck && pnpm run format:check && pnpm run check:schema",
     "dev": "node scripts/langfuse-server.mjs up && node scripts/langfuse-server.mjs wait",
     "dev:up": "node scripts/langfuse-server.mjs up",
     "dev:wait": "node scripts/langfuse-server.mjs wait",
@@ -26,7 +28,7 @@
     "e2e:run": "node scripts/run-action.mjs tests/fixtures/e2e/experiment.py",
     "e2e:run:node": "node scripts/run-action.mjs tests/fixtures/e2e/experiment.ts",
     "test:e2e": "pnpm run build && pnpm run e2e:run && pnpm run e2e:run:node",
-    "all": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
+    "all": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:schema && pnpm run build",
     "prepare": "husky"
   },
   "dependencies": {
@@ -41,10 +43,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@langfuse/client": "5.2.0",
     "@types/node": "^20.16.10",
     "@typescript-eslint/eslint-plugin": "^8.8.1",
     "@typescript-eslint/parser": "^8.8.1",
+    "@valibot/to-json-schema": "1.6.0",
     "@vercel/ncc": "^0.38.2",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "^9.12.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.4",
@@ -53,6 +59,7 @@
     "eslint-plugin-sonarjs": "^4.0.3",
     "husky": "^9.1.7",
     "prettier": "^3.3.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.3",
     "vitest": "^2.1.2"
   }

@@ -67518,46 +67518,6 @@ var core = __nccwpck_require__(6966);
 const external_node_path_namespaceObject = require("node:path");
 // EXTERNAL MODULE: ./node_modules/.pnpm/@actions+github@6.0.1/node_modules/@actions/github/lib/github.js
 var github = __nccwpck_require__(4903);
-// EXTERNAL MODULE: ./node_modules/.pnpm/@octokit+plugin-retry@6.1.0_@octokit+core@5.2.2/node_modules/@octokit/plugin-retry/dist-node/index.js
-var dist_node = __nccwpck_require__(9195);
-// EXTERNAL MODULE: ./node_modules/.pnpm/@octokit+plugin-throttling@8.2.0_@octokit+core@5.2.2/node_modules/@octokit/plugin-throttling/dist-node/index.js
-var plugin_throttling_dist_node = __nccwpck_require__(7100);
-;// CONCATENATED MODULE: ./src/github/octokit.ts
-
-
-
-
-/**
- * Build an Octokit client with sensible defaults for a GitHub Action:
- *
- * - `@octokit/plugin-retry` automatically retries transient network/5xx
- *   failures.
- * - `@octokit/plugin-throttling` honours primary + secondary rate limits,
- *   respects GitHub's `retry-after` hint, and logs exactly which endpoint
- *   tripped the limit.
- *
- * Neither plugin ships in `@actions/github`'s default client — that's the
- * whole reason this wrapper exists. Everything else in the action should
- * reach for `makeOctokit()` rather than calling `github.getOctokit()`
- * directly so the same policy applies everywhere.
- */
-function makeOctokit(token) {
-    return github.getOctokit(token, {
-        throttle: {
-            onRateLimit: (retryAfter, options, _octokit, retryCount) => {
-                core.warning(`Primary rate limit hit on ${options.method} ${options.url}; ` +
-                    `waiting ${retryAfter}s before retry ${retryCount + 1}/3.`);
-                return retryCount < 3;
-            },
-            onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
-                core.warning(`Secondary rate limit hit on ${options.method} ${options.url}; ` +
-                    `waiting ${retryAfter}s before retry ${retryCount + 1}/3.`);
-                return retryCount < 3;
-            },
-        },
-    }, dist_node.retry, plugin_throttling_dist_node.throttling);
-}
-
 ;// CONCATENATED MODULE: ./src/langfuse/project.ts
 
 /**
@@ -67603,6 +67563,174 @@ function buildExperimentResultsUrl(params) {
 }
 function stripTrailingSlash(s) {
     return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+;// CONCATENATED MODULE: ./src/experiment-result.ts
+
+function asRecord(value) {
+    if (!value || typeof value !== "object")
+        return null;
+    return value;
+}
+function toSnakeCase(key) {
+    return key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+}
+function pickField(obj, ...keys) {
+    const record = asRecord(obj);
+    if (!record)
+        return undefined;
+    for (const key of keys) {
+        if (key in record && record[key] !== undefined)
+            return record[key];
+    }
+    return undefined;
+}
+function pickCanonicalField(obj, canonicalKey, ...extraAliases) {
+    return pickField(obj, canonicalKey, toSnakeCase(canonicalKey), ...extraAliases);
+}
+function asEvaluation(raw) {
+    const record = asRecord(raw);
+    if (!record)
+        return null;
+    const name = typeof record.name === "string" ? record.name : null;
+    if (!name)
+        return null;
+    const evaluation = {
+        name,
+        value: (record.value ?? null),
+    };
+    const comment = typeof record.comment === "string" ? record.comment : undefined;
+    if (comment !== undefined)
+        evaluation.comment = comment;
+    const metadata = asRecord(record.metadata);
+    if (metadata)
+        evaluation.metadata = metadata;
+    const dataType = pickCanonicalField(record, "dataType");
+    if (dataType)
+        evaluation.dataType = dataType;
+    const configId = pickCanonicalField(record, "configId");
+    if (configId)
+        evaluation.configId = configId;
+    return evaluation;
+}
+function asItemResult(raw) {
+    const record = asRecord(raw);
+    if (!record)
+        return null;
+    const rawItem = asRecord(record.item) ?? {};
+    const expectedOutput = pickCanonicalField(rawItem, "expectedOutput");
+    const { expected_output: _expectedOutputSnake, ...restItem } = rawItem;
+    const item = {
+        ...restItem,
+        ...(expectedOutput !== undefined ? { expectedOutput } : {}),
+    };
+    const itemId = pickField(item, "id") ?? pickCanonicalField(record, "datasetItemId");
+    if (itemId && item.id === undefined)
+        item.id = itemId;
+    const evaluations = Array.isArray(record.evaluations)
+        ? record.evaluations
+            .map(asEvaluation)
+            .filter((value) => value !== null)
+        : [];
+    const normalized = {
+        item,
+        input: pickField(record, "input") ?? item.input,
+        expectedOutput: pickCanonicalField(record, "expectedOutput") ?? item.expectedOutput,
+        output: record.output,
+        evaluations,
+    };
+    const traceId = pickCanonicalField(record, "traceId");
+    if (traceId)
+        normalized.traceId = traceId;
+    const datasetRunId = pickCanonicalField(record, "datasetRunId");
+    if (datasetRunId)
+        normalized.datasetRunId = datasetRunId;
+    return normalized;
+}
+function normalizeExperimentResult(raw) {
+    const record = asRecord(raw);
+    if (!record)
+        return null;
+    const runEvaluationsRaw = pickCanonicalField(record, "runEvaluations") ?? [];
+    const itemResultsRaw = pickCanonicalField(record, "itemResults") ?? [];
+    const normalized = {
+        runName: pickCanonicalField(record, "runName") ?? pickField(record, "name"),
+        itemResults: itemResultsRaw
+            .map(asItemResult)
+            .filter((value) => value !== null),
+        runEvaluations: runEvaluationsRaw
+            .map(asEvaluation)
+            .filter((value) => value !== null),
+    };
+    const experimentId = pickCanonicalField(record, "experimentId");
+    if (experimentId)
+        normalized.experimentId = experimentId;
+    const datasetRunId = pickCanonicalField(record, "datasetRunId");
+    if (datasetRunId)
+        normalized.datasetRunId = datasetRunId;
+    return normalized;
+}
+/**
+ * The JS SDK's `runName` usually appends an ISO timestamp; strip it when we
+ * want the user-provided experiment name for display.
+ */
+function experimentDisplayName(result) {
+    if (!result.runName)
+        return undefined;
+    return result.runName.replace(/ - \d{4}-\d{2}-\d{2}T[^ ]+$/, "") || result.runName;
+}
+function resolveLangfuseExperimentUrl(params) {
+    const { result, baseUrl, projectId } = params;
+    if (!result)
+        return null;
+    if (baseUrl && projectId && typeof result.experimentId === "string" && result.experimentId) {
+        return buildExperimentResultsUrl({
+            baseUrl,
+            projectId,
+            experimentId: result.experimentId,
+        });
+    }
+    return null;
+}
+
+// EXTERNAL MODULE: ./node_modules/.pnpm/@octokit+plugin-retry@6.1.0_@octokit+core@5.2.2/node_modules/@octokit/plugin-retry/dist-node/index.js
+var dist_node = __nccwpck_require__(9195);
+// EXTERNAL MODULE: ./node_modules/.pnpm/@octokit+plugin-throttling@8.2.0_@octokit+core@5.2.2/node_modules/@octokit/plugin-throttling/dist-node/index.js
+var plugin_throttling_dist_node = __nccwpck_require__(7100);
+;// CONCATENATED MODULE: ./src/github/octokit.ts
+
+
+
+
+/**
+ * Build an Octokit client with sensible defaults for a GitHub Action:
+ *
+ * - `@octokit/plugin-retry` automatically retries transient network/5xx
+ *   failures.
+ * - `@octokit/plugin-throttling` honours primary + secondary rate limits,
+ *   respects GitHub's `retry-after` hint, and logs exactly which endpoint
+ *   tripped the limit.
+ *
+ * Neither plugin ships in `@actions/github`'s default client — that's the
+ * whole reason this wrapper exists. Everything else in the action should
+ * reach for `makeOctokit()` rather than calling `github.getOctokit()`
+ * directly so the same policy applies everywhere.
+ */
+function makeOctokit(token) {
+    return github.getOctokit(token, {
+        throttle: {
+            onRateLimit: (retryAfter, options, _octokit, retryCount) => {
+                core.warning(`Primary rate limit hit on ${options.method} ${options.url}; ` +
+                    `waiting ${retryAfter}s before retry ${retryCount + 1}/3.`);
+                return retryCount < 3;
+            },
+            onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
+                core.warning(`Secondary rate limit hit on ${options.method} ${options.url}; ` +
+                    `waiting ${retryAfter}s before retry ${retryCount + 1}/3.`);
+                return retryCount < 3;
+            },
+        },
+    }, dist_node.retry, plugin_throttling_dist_node.throttling);
 }
 
 ;// CONCATENATED MODULE: ./src/github/job-url.ts
@@ -67794,52 +67922,6 @@ function sectionMarkers(scriptPath) {
         end: `<!-- langfuse-experiment-action:end script=${key} -->`,
     };
 }
-function pickField(obj, ...keys) {
-    if (!obj || typeof obj !== "object")
-        return undefined;
-    const record = obj;
-    for (const k of keys) {
-        if (k in record && record[k] !== undefined)
-            return record[k];
-    }
-    return undefined;
-}
-function asEvaluation(raw) {
-    if (!raw || typeof raw !== "object")
-        return null;
-    const r = raw;
-    const name = typeof r.name === "string" ? r.name : null;
-    if (!name)
-        return null;
-    const value = r.value;
-    const comment = typeof r.comment === "string" ? r.comment : null;
-    return { name, value: value ?? null, comment };
-}
-function asItemResult(raw) {
-    if (!raw || typeof raw !== "object")
-        return null;
-    const r = raw;
-    const item = (r.item ?? {});
-    const itemId = pickField(item, "id") ??
-        pickField(r, "datasetItemId", "dataset_item_id") ??
-        null;
-    const expectedOutput = pickField(item, "expectedOutput", "expected_output");
-    const input = item.input;
-    const output = r.output;
-    const evaluations = Array.isArray(r.evaluations)
-        ? r.evaluations.map(asEvaluation).filter((e) => e !== null)
-        : [];
-    return { itemId, input, expectedOutput, output, evaluations };
-}
-/**
- * The JS SDK's `ExperimentResult` doesn't expose a bare `name` field — only
- * `runName`, which is `"<user-provided name> - <ISO timestamp>"`. Recover
- * the user's original name by stripping the trailing timestamp. If the
- * format doesn't match, use `runName` verbatim.
- */
-function stripTimestampSuffix(runName) {
-    return runName.replace(/ - \d{4}-\d{2}-\d{2}T[^ ]+$/, "") || runName;
-}
 /**
  * Human-readable label for a script file. Extensions are kept (distinguishes
  * `experiment.py` from `experiment.ts`) and the immediate parent directory
@@ -67851,26 +67933,6 @@ function scriptLabel(scriptPath, scriptName) {
     if (!parent || parent === "." || parent === "/")
         return scriptName;
     return `${parent}/${scriptName}`;
-}
-function normalizeResult(raw) {
-    if (!raw || typeof raw !== "object")
-        return null;
-    const record = raw;
-    let name = pickField(record, "name");
-    if (!name) {
-        const runName = pickField(record, "runName", "run_name");
-        if (runName)
-            name = stripTimestampSuffix(runName);
-    }
-    const experimentId = pickField(record, "experimentId", "experiment_id");
-    const runEvalsRaw = pickField(record, "runEvaluations", "run_evaluations") ?? [];
-    const itemResultsRaw = pickField(record, "itemResults", "item_results") ?? [];
-    return {
-        name,
-        experimentId,
-        runEvaluations: runEvalsRaw.map(asEvaluation).filter((e) => e !== null),
-        itemResults: itemResultsRaw.map(asItemResult).filter((r) => r !== null),
-    };
 }
 // ---------------------------------------------------------------------------
 // Cell formatting
@@ -67926,15 +67988,18 @@ function renderItemsTable(itemResults) {
     if (itemResults.length === 0)
         return "";
     const evaluatorNames = Array.from(new Set(itemResults.flatMap((r) => r.evaluations.map((e) => e.name))));
-    const header = ["Item", "Input", "Output", ...evaluatorNames];
+    const header = ["Item", "Input", "Expected", "Output", ...evaluatorNames];
     const rows = itemResults.map((r, idx) => {
-        const label = r.itemId ?? String(idx + 1);
+        const label = typeof r.item.id === "string" ? r.item.id : String(idx + 1);
         const scoreByName = new Map(r.evaluations.map((e) => [e.name, e.value]));
         const cells = [
             cell(label, 24),
             cell(r.input),
+            cell(r.expectedOutput),
             cell(r.output),
-            ...evaluatorNames.map((n) => scoreByName.has(n) ? formatScore(scoreByName.get(n)) : "—"),
+            ...evaluatorNames.map((n) => scoreByName.has(n)
+                ? formatScore(scoreByName.get(n))
+                : "—"),
         ];
         return `| ${cells.join(" | ")} |`;
     });
@@ -67956,28 +68021,24 @@ function renderErrorCallout(err) {
  * Render one `ScriptResult` as a complete PR-comment section, wrapped in
  * start/end markers keyed on the script path.
  *
- * Heading comes from `ExperimentResult.name` when the SDK produced one; on
- * a crash (no result) we fall back to the script filename so the section
- * still shows something recognisable.
+ * Heading comes from the normalized SDK-style `runName`; on a crash (no
+ * result) we fall back to the script filename so the section still shows
+ * something recognisable.
  */
 function renderScriptSection(opts) {
-    const { result: scriptResult, runUrl, langfuseBaseUrl, langfuseProjectId } = opts;
+    const { result: scriptResult, runUrl } = opts;
     const { start, end } = sectionMarkers(scriptResult.scriptPath);
-    const normalized = normalizeResult(scriptResult.result);
+    const normalized = scriptResult.normalizedResult;
     // Prefer the SDK-provided experiment name; fall back to the script file
     // name so a crash with no result still has something recognisable.
-    const displayName = normalized?.name ?? scriptResult.scriptName;
+    const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
     const failed = scriptResult.error !== null;
     const icon = failed ? "❌" : "✅";
     const links = [];
     if (runUrl)
         links.push(`[View run](${runUrl})`);
-    if (langfuseBaseUrl && langfuseProjectId && normalized?.experimentId) {
-        const langfuseUrl = buildExperimentResultsUrl({
-            baseUrl: langfuseBaseUrl,
-            projectId: langfuseProjectId,
-            experimentId: normalized.experimentId,
-        });
+    const langfuseUrl = scriptResult.langfuseExperimentUrl;
+    if (langfuseUrl) {
         links.push(`[View on Langfuse](${langfuseUrl})`);
     }
     // Icon carries the pass/fail signal — no separate "Passed"/"Failed"
@@ -68049,7 +68110,7 @@ function renderCommentTitle(opts = {}) {
     if (opts.runAttempt && opts.runAttempt > 1)
         parts.push(`(#${opts.runAttempt})`);
     const suffix = parts.length > 0 ? `: ${parts.join(" ")}` : "";
-    return `# ${icon} Langfuse Experiment Results${suffix}`;
+    return `# ${icon} Experiment Results${suffix}`;
 }
 function buildFreshCommentBody(runId, titleOpts, sections) {
     const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");
@@ -68157,9 +68218,8 @@ async function postPrComment(opts) {
 /**
  * Render + upsert the PR comment for the current action invocation.
  *
- * Resolves the Langfuse project id (for "View on Langfuse" links), picks
- * the best CI-run URL available (job URL → workflow-run URL), builds one
- * section per `ScriptResult`, and hands the batch to `postPrComment`.
+ * Picks the best CI-run URL available (job URL → workflow-run URL), builds
+ * one section per `ScriptResult`, and hands the batch to `postPrComment`.
  */
 async function publishExperimentComment(opts) {
     const { inputs, results, metadata } = opts;
@@ -68169,20 +68229,11 @@ async function publishExperimentComment(opts) {
     // carries a link even when job-id resolution fails.
     const jobUrl = metadata["langfuse.github_job_url"];
     const runUrl = jobUrl ?? buildWorkflowRunUrl(env) ?? undefined;
-    // One API call resolves the Langfuse project id; `null` means we skip
-    // the Langfuse link but everything else still renders.
-    const langfuseProjectId = (await resolveProjectId({
-        baseUrl: inputs.langfuseBaseUrl,
-        publicKey: inputs.langfusePublicKey,
-        secretKey: inputs.langfuseSecretKey,
-    })) ?? undefined;
     const sections = results.map((result) => ({
         scriptPath: result.scriptPath,
         markdown: renderScriptSection({
             result,
             runUrl,
-            langfuseBaseUrl: inputs.langfuseBaseUrl,
-            langfuseProjectId,
         }),
     }));
     const runAttempt = Number(env.GITHUB_RUN_ATTEMPT ?? "1");
@@ -76172,17 +76223,134 @@ function resolveInputs() {
     return inputs;
 }
 
+;// CONCATENATED MODULE: ./src/schema/output.ts
+
+const RESULT_JSON_SCHEMA_VERSION = "v1";
+const resultStatusSchema = picklist(["passed", "regression", "error"]);
+const actionMetadataSchema = objectWithRest({}, string());
+const outputErrorSchema = strictObject({
+    name: string(),
+    message: string(),
+    is_regression: dist_boolean(),
+    details: optional(string()),
+});
+const outputEvaluationSchema = strictObject({
+    name: string(),
+    value: union([number(), string(), dist_boolean(), null_()]),
+    comment: optional(string()),
+    metadata: optional(objectWithRest({}, unknown())),
+    data_type: optional(string()),
+    config_id: optional(string()),
+});
+const outputExperimentItemResultSchema = strictObject({
+    item: objectWithRest({}, unknown()),
+    input: optional(unknown()),
+    expected_output: optional(unknown()),
+    output: optional(unknown()),
+    evaluations: array(outputEvaluationSchema),
+    trace_id: optional(string()),
+    dataset_run_id: optional(string()),
+});
+const outputExperimentResultSchema = strictObject({
+    experiment_id: optional(string()),
+    run_name: optional(string()),
+    dataset_run_id: optional(string()),
+    item_results: array(outputExperimentItemResultSchema),
+    run_evaluations: array(outputEvaluationSchema),
+});
+const outputEntrySchema = strictObject({
+    script_path: string(),
+    script_name: string(),
+    runtime: picklist(["python", "node"]),
+    duration_ms: number(),
+    status: resultStatusSchema,
+    langfuse_experiment_url: nullable(pipe(string(), url())),
+    error: nullable(outputErrorSchema),
+    experiment_result: nullable(outputExperimentResultSchema),
+});
+const outputEnvelopeSchema = strictObject({
+    schema_version: literal(RESULT_JSON_SCHEMA_VERSION),
+    action_metadata: actionMetadataSchema,
+    results: array(outputEntrySchema),
+});
+
 ;// CONCATENATED MODULE: ./src/output.ts
 
-function setOutputs(results) {
-    const anyFailed = results.some((r) => r.error !== null);
-    const payload = results.map((r) => ({
-        script: r.scriptPath,
-        runtime: r.runtime,
-        duration_ms: r.durationMs,
-        result: r.result,
-        error: r.error,
-    }));
+
+function outputError(error) {
+    if (!error)
+        return null;
+    return {
+        name: error.name,
+        message: error.message,
+        is_regression: error.isRegression,
+        details: error.details,
+    };
+}
+function resultStatus(result) {
+    if (!result.error)
+        return "passed";
+    return result.error.isRegression ? "regression" : "error";
+}
+function toOutputExperimentResult(result) {
+    if (!result)
+        return null;
+    return {
+        experiment_id: result.experimentId,
+        run_name: result.runName,
+        dataset_run_id: result.datasetRunId,
+        item_results: result.itemResults.map((itemResult) => {
+            const { expectedOutput, ...restItem } = itemResult.item;
+            return {
+                item: {
+                    ...restItem,
+                    ...(expectedOutput !== undefined ? { expected_output: expectedOutput } : {}),
+                },
+                input: itemResult.input,
+                expected_output: itemResult.expectedOutput,
+                output: itemResult.output,
+                evaluations: itemResult.evaluations.map((evaluation) => ({
+                    name: evaluation.name,
+                    value: evaluation.value,
+                    comment: evaluation.comment,
+                    metadata: evaluation.metadata,
+                    data_type: evaluation.dataType,
+                    config_id: evaluation.configId,
+                })),
+                trace_id: itemResult.traceId,
+                dataset_run_id: itemResult.datasetRunId,
+            };
+        }),
+        run_evaluations: result.runEvaluations.map((evaluation) => ({
+            name: evaluation.name,
+            value: evaluation.value,
+            comment: evaluation.comment,
+            metadata: evaluation.metadata,
+            data_type: evaluation.dataType,
+            config_id: evaluation.configId,
+        })),
+    };
+}
+function buildOutputEnvelope(opts) {
+    const { results, actionMetadata } = opts;
+    return {
+        schema_version: RESULT_JSON_SCHEMA_VERSION,
+        action_metadata: actionMetadata,
+        results: results.map((result) => ({
+            script_path: result.scriptPath,
+            script_name: result.scriptName,
+            runtime: result.runtime,
+            duration_ms: result.durationMs,
+            status: resultStatus(result),
+            langfuse_experiment_url: result.langfuseExperimentUrl,
+            error: outputError(result.error),
+            experiment_result: toOutputExperimentResult(result.normalizedResult),
+        })),
+    };
+}
+function setOutputs(opts) {
+    const anyFailed = opts.results.some((result) => result.error !== null);
+    const payload = buildOutputEnvelope(opts);
     const json = JSON.stringify(payload);
     core.debug(`Outputs: failed=${anyFailed} result_json=${json.length} bytes`);
     core.setOutput("result_json", json);
@@ -76190,6 +76358,8 @@ function setOutputs(results) {
 }
 
 ;// CONCATENATED MODULE: ./src/main.ts
+
+
 
 
 
@@ -76217,12 +76387,31 @@ async function run() {
         token: inputs.githubToken,
         custom: inputs.customMetadata,
     });
+    const langfuseProjectId = (await resolveProjectId({
+        baseUrl: inputs.langfuseBaseUrl,
+        publicKey: inputs.langfusePublicKey,
+        secretKey: inputs.langfuseSecretKey,
+    })) ?? undefined;
     const runnerEnv = { inputs, metadata };
     const results = [];
     for (const script of scripts) {
         core.startGroup(`Running ${script.path}`);
         try {
-            results.push(await script.run(runnerEnv));
+            const rawResult = await script.run(runnerEnv);
+            const normalizedResult = normalizeExperimentResult(rawResult.result);
+            results.push({
+                scriptPath: rawResult.scriptPath,
+                scriptName: rawResult.scriptName,
+                runtime: rawResult.runtime,
+                error: rawResult.error,
+                durationMs: rawResult.durationMs,
+                normalizedResult,
+                langfuseExperimentUrl: resolveLangfuseExperimentUrl({
+                    result: normalizedResult,
+                    baseUrl: inputs.langfuseBaseUrl,
+                    projectId: langfuseProjectId,
+                }),
+            });
         }
         finally {
             core.endGroup();
@@ -76238,7 +76427,10 @@ async function run() {
     }
     const anyFailed = results.some((r) => r.error !== null);
     core.debug(`Any failures: ${anyFailed}`);
-    setOutputs(results);
+    setOutputs({
+        results,
+        actionMetadata: metadata,
+    });
     if (inputs.shouldCommentOnPr) {
         await publishExperimentComment({ inputs, results, metadata });
     }

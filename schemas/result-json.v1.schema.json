@@ -1,0 +1,230 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "action_metadata": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "script_path": {
+            "type": "string"
+          },
+          "script_name": {
+            "type": "string"
+          },
+          "runtime": {
+            "enum": ["python", "node"],
+            "type": "string"
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "status": {
+            "enum": ["passed", "regression", "error"],
+            "type": "string"
+          },
+          "langfuse_experiment_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "is_regression": {
+                    "type": "boolean"
+                  },
+                  "details": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "message", "is_regression"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "experiment_result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "experiment_id": {
+                    "type": "string"
+                  },
+                  "run_name": {
+                    "type": "string"
+                  },
+                  "dataset_run_id": {
+                    "type": "string"
+                  },
+                  "item_results": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item": {
+                          "type": "object",
+                          "properties": {},
+                          "required": [],
+                          "additionalProperties": {}
+                        },
+                        "input": {},
+                        "expected_output": {},
+                        "output": {},
+                        "evaluations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "anyOf": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "boolean"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "comment": {
+                                "type": "string"
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "properties": {},
+                                "required": [],
+                                "additionalProperties": {}
+                              },
+                              "data_type": {
+                                "type": "string"
+                              },
+                              "config_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["name", "value"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "trace_id": {
+                          "type": "string"
+                        },
+                        "dataset_run_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["item", "evaluations"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "run_evaluations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "comment": {
+                          "type": "string"
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "properties": {},
+                          "required": [],
+                          "additionalProperties": {}
+                        },
+                        "data_type": {
+                          "type": "string"
+                        },
+                        "config_id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["name", "value"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["item_results", "run_evaluations"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "script_path",
+          "script_name",
+          "runtime",
+          "duration_ms",
+          "status",
+          "langfuse_experiment_url",
+          "error",
+          "experiment_result"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema_version", "action_metadata", "results"],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/langfuse/experiment-action/schemas/result-json.v1.schema.json",
+  "title": "Langfuse Experiment Action result_json v1"
+}

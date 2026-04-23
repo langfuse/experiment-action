@@ -91,15 +91,14 @@ export default [
     },
   },
   {
-    // The runner wrappers and build helpers are standalone .mjs scripts that
-    // aren't part of the TypeScript surface, so skip lint for them.
+    // The runner wrappers are standalone .mjs scripts that aren't part of
+    // the TypeScript surface, so skip lint for them.
     ignores: [
       "dist/",
       "node_modules/",
       "lib/",
       "coverage/",
       "src/executors/wrappers/**",
-      "scripts/**",
       // E2E fixtures import user-side packages (@langfuse/client, @langfuse/otel)
       // that aren't in our dev deps — they're standalone example scripts, not
       // ours to typecheck or lint.

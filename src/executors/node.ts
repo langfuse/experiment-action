@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 
-import type { ScriptError, ScriptResult } from "@/types";
+import type { RawScriptResult, ScriptError } from "@/types";
 
 import { ExperimentScript } from "./script";
 import { readResultFile, readStatusFile, type RunnerEnv } from "./shared";
@@ -35,7 +35,7 @@ export class NodeScript extends ExperimentScript {
     super(path);
   }
 
-  async run(env: RunnerEnv): Promise<ScriptResult> {
+  async run(env: RunnerEnv): Promise<RawScriptResult> {
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "langfuse-run-"));
     const resultFile = path.join(tmpDir, "result.json");
     const statusFile = path.join(tmpDir, "status.json");

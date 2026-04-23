@@ -6,7 +6,10 @@ import {
   renderScriptSection,
   upsertSection,
 } from "@/comment";
+import { normalizeExperimentResult, resolveLangfuseExperimentUrl } from "@/experiment-result";
 import type { ScriptResult } from "@/types";
+
+import { scriptResultFromRaw } from "./helpers/script-results";
 
 /**
  * Rendering tests compare the full comment markdown against files under
@@ -19,8 +22,23 @@ import type { ScriptResult } from "@/types";
 
 const SNAPSHOT_DIR = "./snapshots";
 const snap = (file: string) => `${SNAPSHOT_DIR}/${file}`;
+const SNAPSHOT_RUN_ID = "12345";
+const SNAPSHOT_TITLE = { shortSha: "abc1234", runAttempt: 1 } as const;
 
-const pyPassingResult: ScriptResult = {
+function renderFullCommentSnapshot(
+  result: ScriptResult,
+  opts: {
+    runUrl?: string;
+  } = {},
+): string {
+  const section = renderScriptSection({
+    result,
+    runUrl: opts.runUrl,
+  });
+  return buildFreshCommentBody(SNAPSHOT_RUN_ID, SNAPSHOT_TITLE, [section]);
+}
+
+const pyPassingResult: ScriptResult = scriptResultFromRaw({
   scriptPath: "/tmp/experiment.py",
   scriptName: "experiment.py",
   runtime: "python",
@@ -43,12 +61,12 @@ const pyPassingResult: ScriptResult = {
   },
   error: null,
   durationMs: 4500,
-};
+});
 
 // NOTE: mirrors what the JS SDK actually returns — no top-level `name`
 // field; just `runName` which is `"<name> - <ISO timestamp>"`. The
 // renderer has to recover the user-provided name from that.
-const tsPassingResult: ScriptResult = {
+const tsPassingResult: ScriptResult = scriptResultFromRaw({
   scriptPath: "/tmp/mixed/exp_node.ts",
   scriptName: "exp_node.ts",
   runtime: "node",
@@ -66,9 +84,9 @@ const tsPassingResult: ScriptResult = {
   },
   error: null,
   durationMs: 1200,
-};
+});
 
-const regressionWithResult: ScriptResult = {
+const regressionWithResult: ScriptResult = scriptResultFromRaw({
   scriptPath: "/tmp/reg.py",
   scriptName: "reg.py",
   runtime: "python",
@@ -89,9 +107,9 @@ const regressionWithResult: ScriptResult = {
     isRegression: true,
   },
   durationMs: 3400,
-};
+});
 
-const unrelatedError: ScriptResult = {
+const unrelatedError: ScriptResult = scriptResultFromRaw({
   scriptPath: "/tmp/broken.py",
   scriptName: "broken.py",
   runtime: "python",
@@ -102,52 +120,54 @@ const unrelatedError: ScriptResult = {
     isRegression: false,
   },
   durationMs: 500,
-};
+});
 
 describe("renderScriptSection snapshots", () => {
   it("passing experiment (includes Langfuse link when experiment id + project id are present)", async () => {
-    const section = renderScriptSection({
-      result: pyPassingResult,
-      runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
-      langfuseBaseUrl: "http://localhost:3000",
-      langfuseProjectId: "7a88fb47-b4e2-43b8-a06c-a5ce950dc53a",
-    });
-    expect(section).toContain(
+    const body = renderFullCommentSnapshot(
+      {
+        ...pyPassingResult,
+        langfuseExperimentUrl: resolveLangfuseExperimentUrl({
+          result: pyPassingResult.normalizedResult,
+          baseUrl: "http://localhost:3000",
+          projectId: "7a88fb47-b4e2-43b8-a06c-a5ce950dc53a",
+        }),
+      },
+      {
+        runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
+      },
+    );
+    expect(body).toContain(
       "[View on Langfuse](http://localhost:3000/project/7a88fb47-b4e2-43b8-a06c-a5ce950dc53a" +
         "/experiments/results?baseline=0f212f9182320769)",
     );
-    await expect(section).toMatchFileSnapshot(snap("passing.md"));
+    await expect(body).toMatchFileSnapshot(snap("passing.md"));
   });
 
-  it("omits the Langfuse link when project id is missing", async () => {
-    const section = renderScriptSection({
-      result: pyPassingResult,
+  it("omits the Langfuse link when project id is missing", () => {
+    const body = renderFullCommentSnapshot(pyPassingResult, {
       runUrl: "https://github.com/owner/repo/actions/runs/7/job/42",
-      langfuseBaseUrl: "http://localhost:3000",
-      // no langfuseProjectId
     });
-    expect(section).not.toContain("View on Langfuse");
+    expect(body).not.toContain("View on Langfuse");
   });
 
   it("regression with a captured result (scores + items still rendered)", async () => {
-    const section = renderScriptSection({
-      result: regressionWithResult,
+    const body = renderFullCommentSnapshot(regressionWithResult, {
       runUrl: "https://github.com/o/r/actions/runs/7/job/42",
     });
-    await expect(section).toMatchFileSnapshot(snap("regression.md"));
+    await expect(body).toMatchFileSnapshot(snap("regression.md"));
   });
 
   it("unrelated error: minimal CAUTION alert, no tables", async () => {
-    const section = renderScriptSection({
-      result: unrelatedError,
+    const body = renderFullCommentSnapshot(unrelatedError, {
       runUrl: "https://github.com/o/r/actions/runs/7/job/42",
     });
-    await expect(section).toMatchFileSnapshot(snap("unrelated-error.md"));
+    await expect(body).toMatchFileSnapshot(snap("unrelated-error.md"));
   });
 
   it("falls back to the script filename in the heading when no SDK name", async () => {
     const section = renderScriptSection({
-      result: { ...unrelatedError, result: null },
+      result: { ...unrelatedError, normalizedResult: null },
     });
     expect(section).toMatch(/^<!-- langfuse-experiment-action:start script=/);
     // No SDK name → heading uses the script filename as the display name,
@@ -179,18 +199,20 @@ describe("renderScriptSection snapshots", () => {
     const section = renderScriptSection({
       result: {
         ...pyPassingResult,
-        result: {
-          ...(pyPassingResult.result as object),
+        normalizedResult: normalizeExperimentResult({
+          name: "Uppercase task",
+          experiment_id: "0f212f9182320769",
+          run_evaluations: [{ name: "avg_accuracy", value: 1 }],
           item_results: manyItems,
-        },
+        }),
       },
     });
 
     // Summary reflects the *full* count.
     expect(section).toContain("<details><summary>60 items</summary>");
     // Only the first 50 data rows land in the table.
-    expect(section).toContain("| 1 | input-0 | expected-0 | 1.000 |");
-    expect(section).toContain("| 50 | input-49 | expected-49 | 1.000 |");
+    expect(section).toContain("| 1 | input-0 | expected-0 | expected-0 | 1.000 |");
+    expect(section).toContain("| 50 | input-49 | expected-49 | expected-49 | 1.000 |");
     expect(section).not.toContain("| 51 | input-50 |");
     // Truncation note tells the reader where to get the rest.
     expect(section).toContain("_Showing first 50 of 60 — view the full set in Langfuse._");
@@ -200,19 +222,19 @@ describe("renderScriptSection snapshots", () => {
 describe("renderCommentTitle", () => {
   it("includes the short SHA when provided, omits attempt on first run", () => {
     expect(renderCommentTitle({ shortSha: "abc1234", runAttempt: 1 })).toBe(
-      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Langfuse Experiment Results: `abc1234`',
+      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234`',
     );
   });
 
   it("appends (#N) when the attempt is > 1", () => {
     expect(renderCommentTitle({ shortSha: "abc1234", runAttempt: 3 })).toBe(
-      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Langfuse Experiment Results: `abc1234` (#3)',
+      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#3)',
     );
   });
 
   it("drops the suffix entirely when neither SHA nor attempt > 1 is available", () => {
     expect(renderCommentTitle({})).toBe(
-      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Langfuse Experiment Results',
+      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results',
     );
   });
 });

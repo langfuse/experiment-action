@@ -101,10 +101,12 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 
 ### Outputs
 
-| Output        | Description                                                                                   |
-| ------------- | --------------------------------------------------------------------------------------------- |
-| `result_json` | JSON array of experiment results (`{script, runtime, duration_ms, result, error}` per entry). |
-| `failed`      | `"true"` if any experiment errored or raised a regression, else `"false"`.                    |
+| Output        | Description                                                                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `result_json` | JSON output with action metadata and experiment results. See [`schemas/result-json.v1.schema.json`](schemas/result-json.v1.schema.json). |
+| `failed`      | `"true"` if any experiment errored or raised a regression, else `"false"`.                                                               |
+
+For the full `result_json` structure, see [`schemas/result-json.v1.schema.json`](schemas/result-json.v1.schema.json).
 
 ### Script contract
 
