@@ -68366,7 +68366,7 @@ function renderCommentTitle(opts = {}) {
     if (opts.runAttempt && opts.runAttempt > 1)
         parts.push(`(#${opts.runAttempt})`);
     const suffix = parts.length > 0 ? `: ${parts.join(" ")}` : "";
-    return `# ${icon} Experiment Results${suffix}`;
+    return `### ${icon} Experiment Results${suffix}`;
 }
 function buildFreshCommentBody(runId, titleOpts, sections) {
     const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");

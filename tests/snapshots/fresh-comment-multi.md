@@ -1,6 +1,6 @@
 <!-- langfuse-experiment-action run_id=12345 -->
 
-# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#2)
+### <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#2)
 
 <!-- langfuse-experiment-action:overview:start -->
 | Experiment | Status | Actions |

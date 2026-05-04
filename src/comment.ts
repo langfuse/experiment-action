@@ -524,7 +524,7 @@ export function renderCommentTitle(opts: CommentTitleOptions = {}): string {
   if (opts.shortSha) parts.push(`\`${opts.shortSha}\``);
   if (opts.runAttempt && opts.runAttempt > 1) parts.push(`(#${opts.runAttempt})`);
   const suffix = parts.length > 0 ? `: ${parts.join(" ")}` : "";
-  return `# ${icon} Experiment Results${suffix}`;
+  return `### ${icon} Experiment Results${suffix}`;
 }
 
 export function buildFreshCommentBody(

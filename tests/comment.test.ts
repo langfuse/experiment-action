@@ -263,19 +263,19 @@ describe("renderScriptSection snapshots", () => {
 describe("renderCommentTitle", () => {
   it("includes the short SHA when provided, omits attempt on first run", () => {
     expect(renderCommentTitle({ shortSha: "abc1234", runAttempt: 1 })).toBe(
-      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234`',
+      '### <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234`',
     );
   });
 
   it("appends (#N) when the attempt is > 1", () => {
     expect(renderCommentTitle({ shortSha: "abc1234", runAttempt: 3 })).toBe(
-      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#3)',
+      '### <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results: `abc1234` (#3)',
     );
   });
 
   it("drops the suffix entirely when neither SHA nor attempt > 1 is available", () => {
     expect(renderCommentTitle({})).toBe(
-      '# <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results',
+      '### <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results',
     );
   });
 });
