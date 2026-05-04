@@ -191,9 +191,9 @@ describe("experiment runner wrappers", () => {
     await fs.writeFile(
       scriptPath,
       `import { appendFileSync } from "node:fs";
-      export async function experiment(context = undefined) {
+      export async function experiment(context = undefined, optional = "allowed") {
         appendFileSync(process.env.LANGFUSE_OTEL_TEST_EVENTS, "experiment\\n");
-        return context.runExperiment({ name: "from-script" });
+        return context.runExperiment({ name: "from-script", optional });
       }`,
     );
 
@@ -216,6 +216,7 @@ describe("experiment runner wrappers", () => {
       data: [{ input: "ci-dataset", expectedOutput: "2026-05-04T12:00:00Z" }],
       datasetVersion: "2026-05-04T12:00:00Z",
       metadata: { source: "action" },
+      optional: "allowed",
     });
     expect(await fs.readFile(otelEventsFile, "utf8")).toBe("start\nexperiment\nshutdown\n");
   });
@@ -229,7 +230,7 @@ describe("experiment runner wrappers", () => {
     await runNodeWrapper({ scriptPath, resultFile, statusFile });
 
     expect(await readJson(statusFile)).toEqual(
-      contractError("Script `experiment` function must accept a single `context` parameter."),
+      contractError("Script `experiment` function must accept `context` as its first parameter."),
     );
   });
 
@@ -242,8 +243,8 @@ describe("experiment runner wrappers", () => {
       scriptPath,
       `from langfuse import RunnerContext
 
-def experiment(*, context: RunnerContext, optional="allowed", **kwargs):
-    return context.run_experiment(name="from-script", optional=optional, kwargs=kwargs)
+def experiment(context: RunnerContext, *args, optional="allowed", **kwargs):
+    return context.run_experiment(name="from-script", optional=optional, args=args, kwargs=kwargs)
 `,
     );
 
@@ -270,7 +271,7 @@ def experiment(*, context: RunnerContext, optional="allowed", **kwargs):
       data: [{ input: "ci-dataset", expected_output: "2026-05-04T12:00:00+00:00" }],
       dataset_version: "2026-05-04T12:00:00+00:00",
       metadata: { source: "action" },
-      params: { name: "from-script", optional: "allowed", kwargs: {} },
+      params: { name: "from-script", optional: "allowed", args: [], kwargs: {} },
     });
     expect(await fs.readFile(flushEventsFile, "utf8")).toBe("flush\n");
   });

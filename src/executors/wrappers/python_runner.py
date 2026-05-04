@@ -185,7 +185,7 @@ def _has_context_parameter(experiment_fn: Any) -> bool:
     for name, param in params.items():
         if name == "context":
             continue
-        if param.kind == inspect.Parameter.VAR_KEYWORD:
+        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
             continue
         if param.default is inspect.Parameter.empty:
             return False

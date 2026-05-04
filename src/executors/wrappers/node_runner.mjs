@@ -108,7 +108,7 @@ function parameterNames(fn) {
 
 function hasContextParameter(fn) {
   const params = parameterNames(fn);
-  return params.length === 1 && params[0] === "context";
+  return params[0] === "context";
 }
 
 function serializeError(err) {
@@ -162,7 +162,7 @@ async function main() {
     await writeErrorStatus(statusFile, new Error("ContractError"), {
       error_name: "ContractError",
       message:
-        "Script `experiment` function must accept a single `context` parameter. " +
+        "Script `experiment` function must accept `context` as its first parameter. " +
         "See https://github.com/langfuse/experiment-action#script-contract",
       is_regression: false,
       traceback: "",
