@@ -91,8 +91,8 @@ const InputsSchema = v.object({
   shouldFailOnRegression: booleanFromString(true),
   shouldFailOnScriptError: booleanFromString(true),
   shouldCommentOnPr: booleanFromString(true),
-  pythonSdkVersion: stringWithDefault("latest"),
-  jsSdkVersion: stringWithDefault("latest"),
+  pythonSdkVersion: stringWithDefault("4.6.0b1"),
+  jsSdkVersion: stringWithDefault("5.3.0-beta.0"),
   shouldSkipSdkInstallation: booleanFromString(false),
   // action.yml can't default `github_token` to `${{ github.token }}` — that
   // expression is invalid inside an action manifest. Callers that want PR

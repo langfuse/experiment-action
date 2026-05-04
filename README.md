@@ -96,8 +96,8 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 | `should_fail_on_regression`    | no       | `true`                       | Fail CI when an experiment raises `RegressionError`.                                                                                                            |
 | `should_fail_on_script_error`  | no       | `true`                       | Fail CI when an experiment script crashes or raises a non-regression error.                                                                                     |
 | `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                |
-| `python_sdk_version`           | no       | `latest`                     | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                |
-| `js_sdk_version`               | no       | `latest`                     | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                                           |
+| `python_sdk_version`           | no       | `4.6.0`                      | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                |
+| `js_sdk_version`               | no       | `5.3.0`                      | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                                           |
 | `should_skip_sdk_installation` | no       | `false`                      | Skip automatic SDK installation and use the ambient Python/Node environment.                                                                                    |
 | `github_token`                 | no       |                              | Token used to post the PR comment. Pass `${{ github.token }}` and grant `pull-requests: write` (and optionally `actions: read` for job-level "View run" links). |
 
@@ -112,24 +112,24 @@ For the full `result_json` structure, see [`schemas/result-json.v1.schema.json`]
 
 ### Script contract
 
-Your experiment script must define a function named `experiment`. Use the
-access patterns from the [Langfuse experiments docs][docs-experiments] —
-iterate `run_evaluations` / `runEvaluations` to find the score you want to
-gate on.
+Your experiment script must define a function named `experiment`. The action
+creates a Langfuse SDK `RunnerContext` and passes it as the first argument so
+scripts can use action-injected defaults for dataset, dataset version, and
+metadata. Use the access patterns from the [Langfuse experiments
+docs][docs-experiments] — iterate `run_evaluations` / `runEvaluations` to find
+the score you want to gate on.
 
 [docs-experiments]: https://langfuse.com/docs/evaluation/experiments/experiments-via-sdk#basic-usage
 
 #### Python
 
 ```python
-from langfuse import get_client
+from langfuse import RegressionError, RunnerContext
 
 
-def experiment():
-    langfuse = get_client()
-    result = langfuse.run_experiment(
+def experiment(context: RunnerContext):
+    result = context.run_experiment(
         name="My experiment",
-        data=[{"input": "...", "expected_output": "..."}],
         task=my_task,
         evaluators=[my_evaluator],
         run_evaluators=[avg_accuracy],
@@ -149,13 +149,11 @@ def experiment():
 #### TypeScript / JavaScript
 
 ```ts
-import { LangfuseClient } from "@langfuse/client";
+import { RegressionError, type RunnerContext } from "@langfuse/client";
 
-export async function experiment() {
-  const langfuse = new LangfuseClient();
-  const result = await langfuse.experiment.run({
+export async function experiment(context: RunnerContext) {
+  const result = await context.runExperiment({
     name: "My experiment",
-    data: [{ input: "...", expectedOutput: "..." }],
     task: myTask,
     evaluators: [myEvaluator],
     runEvaluators: [avgAccuracy],
@@ -233,7 +231,7 @@ Files starting with `.` or `_` are skipped so helper modules (e.g.
 
 Set `should_skip_sdk_installation: "true"` and install the SDK yourself
 before the action runs. Useful when your project has pinned lockfiles
-you'd rather honour than reinstall against `latest`.
+you'd rather honour than reinstall against the action's default SDK versions.
 
 #### Python — install from your own `requirements.txt`
 
@@ -258,8 +256,9 @@ for `poetry install`, `uv sync`, `pdm install`, etc.
 
 #### Node — install from your own lockfile
 
-The action needs both `@langfuse/client` and `tsx` reachable from the
-working directory's `node_modules/`.
+The action needs `@langfuse/client`, `@langfuse/tracing`, `@langfuse/otel`,
+`@opentelemetry/sdk-node`, and `tsx` reachable from the working directory's
+`node_modules/`.
 
 ```yaml
 - uses: actions/setup-node@v6
@@ -277,8 +276,9 @@ working directory's `node_modules/`.
     langfuse_secret_key: ${{ secrets.LANGFUSE_SECRET_KEY }}
 ```
 
-Make sure `@langfuse/client` and `tsx` are listed in `package.json`
-(either `dependencies` or `devDependencies` — `npm ci` installs both).
+Make sure `@langfuse/client`, `@langfuse/tracing`, `@langfuse/otel`,
+`@opentelemetry/sdk-node`, and `tsx` are listed in `package.json` (either
+`dependencies` or `devDependencies` — `npm ci` installs both).
 
 ### How do I pass extra secrets (OpenAI keys, etc.) to my experiment?
 
@@ -307,8 +307,7 @@ python_sdk_version: "4.1.2"
 js_sdk_version: "5.0.0-rc.3"
 ```
 
-Both default to `latest`. If a version is already installed and matches,
-the action skips the install.
+If a version is already installed and matches, the action skips the install.
 
 ### Why does the action need a `github_token`?
 

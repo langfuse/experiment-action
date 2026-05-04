@@ -11,6 +11,54 @@ import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { resolve as resolvePath } from "node:path";
 
+function readJsonEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  return JSON.parse(raw);
+}
+
+async function startOtel() {
+  // Import after registering node_resolver.mjs below for the same reason as
+  // @langfuse/client: these packages live in the action-managed install dir.
+  const { LangfuseSpanProcessor } = await import("@langfuse/otel");
+  const { NodeSDK } = await import("@opentelemetry/sdk-node");
+  const otelSdk = new NodeSDK({ spanProcessors: [new LangfuseSpanProcessor()] });
+  otelSdk.start();
+  return otelSdk;
+}
+
+async function shutdownOtel(otelSdk) {
+  if (!otelSdk) return;
+  try {
+    await otelSdk.shutdown();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`::debug::Langfuse OTel shutdown failed: ${message}\n`);
+  }
+}
+
+async function createRunnerContext() {
+  // Import after registering node_resolver.mjs below. The SDK is installed in
+  // the action-managed temp dir, so a static top-level import would resolve
+  // before the resolver can redirect @langfuse/client there.
+  const { LangfuseClient, RunnerContext } = await import("@langfuse/client");
+  const client = new LangfuseClient();
+  const metadata = readJsonEnv("LANGFUSE_EXPERIMENT_METADATA", undefined);
+  const datasetName = process.env.LANGFUSE_DATASET_NAME;
+  const datasetVersion = process.env.LANGFUSE_DATASET_VERSION;
+  let data;
+
+  if (datasetName) {
+    const dataset = await client.dataset.get(
+      datasetName,
+      datasetVersion ? { version: datasetVersion } : undefined,
+    );
+    data = dataset.items;
+  }
+
+  return new RunnerContext({ client, data, datasetVersion, metadata });
+}
+
 // Register an ESM resolver for `@langfuse/*`, `@opentelemetry/*`, and
 // `tsx` that resolves them from our stable install dir. Needed because
 // ESM resolution ignores NODE_PATH — without this, `import "@langfuse/client"`
@@ -34,6 +82,33 @@ async function writeErrorStatus(statusFile, err, overrides = {}) {
     is_regression: overrides.is_regression ?? e.isRegression,
     traceback: overrides.traceback ?? e.stack,
   });
+}
+
+function parameterNames(fn) {
+  // Runtime JS does not expose parameter names, so inspect the source as a
+  // best-effort contract check. This intentionally mirrors the common
+  // Function#toString + comment stripping approach, without adding a parser to
+  // the runner wrapper.
+  const source = Function.prototype.toString
+    .call(fn)
+    .trim()
+    .replace(/^async\s+/, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
+  const paramsSource =
+    source.match(/^(?:function\b[^()]*)?[^=()]*\(([^)]*)\)/)?.[1] ??
+    source.match(/^([^=()\s]+)\s*=>/)?.[1] ??
+    "";
+
+  return paramsSource
+    .split(",")
+    .map((param) => param.trim().replace(/\s*=.*$/, ""))
+    .filter(Boolean);
+}
+
+function hasContextParameter(fn) {
+  const params = parameterNames(fn);
+  return params.length === 1 && params[0] === "context";
 }
 
 function serializeError(err) {
@@ -83,11 +158,25 @@ async function main() {
     return;
   }
 
+  if (!hasContextParameter(experimentFn)) {
+    await writeErrorStatus(statusFile, new Error("ContractError"), {
+      error_name: "ContractError",
+      message:
+        "Script `experiment` function must accept a single `context` parameter. " +
+        "See https://github.com/langfuse/experiment-action#script-contract",
+      is_regression: false,
+      traceback: "",
+    });
+    return;
+  }
+
   let result;
+  let otelSdk;
   try {
-    result = await experimentFn();
+    otelSdk = await startOtel();
+    const context = await createRunnerContext();
+    result = await experimentFn(context);
   } catch (err) {
-    const e = serializeError(err);
     const embeddedResult = err && typeof err === "object" ? err.result : undefined;
     if (embeddedResult !== undefined) {
       try {
@@ -98,6 +187,8 @@ async function main() {
     }
     await writeErrorStatus(statusFile, err);
     return;
+  } finally {
+    await shutdownOtel(otelSdk);
   }
 
   try {

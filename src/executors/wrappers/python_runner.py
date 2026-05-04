@@ -6,7 +6,8 @@ Invoked as:
 
 Contract:
   - Imports the user script as a module
-  - Calls its ``experiment()`` function (no args — RunnerContext is v2)
+  - Creates a Langfuse ``RunnerContext`` from action inputs
+  - Calls its ``experiment(context)`` function
   - Serializes the returned result to ``<result_file>`` as JSON
   - Writes a single-line JSON status envelope to ``<status_file>`` with
     ``{"status": "ok"}`` or
@@ -24,9 +25,11 @@ import asyncio
 import importlib.util
 import inspect
 import json
+import os
 import sys
 import traceback
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -116,7 +119,81 @@ async def _await(awaitable: Any) -> Any:
     return await awaitable
 
 
-def _load_user_module(script_path: Path):
+def _parse_dataset_version(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+
+
+def _create_runner_context() -> Any:
+    # Keep SDK imports local so malformed scripts can still fail with a
+    # structured ContractError before importing langfuse. SDK import/setup
+    # failures then stay inside the execution path and are written to the
+    # status file like user-code errors.
+    from langfuse import RunnerContext, get_client  # type: ignore[attr-defined]
+
+    client = get_client()
+    metadata_raw = os.environ.get("LANGFUSE_EXPERIMENT_METADATA")
+    metadata = json.loads(metadata_raw) if metadata_raw else None
+    dataset_name = os.environ.get("LANGFUSE_DATASET_NAME")
+    dataset_version = _parse_dataset_version(os.environ.get("LANGFUSE_DATASET_VERSION"))
+    data = None
+
+    if dataset_name:
+        dataset = client.get_dataset(
+            dataset_name,
+            version=dataset_version,
+        )
+        data = dataset.items
+
+    return RunnerContext(
+        client=client,
+        data=data,
+        dataset_version=dataset_version,
+        metadata=metadata,
+    )
+
+
+def _flush_langfuse(context: Any | None) -> None:
+    if context is None:
+        return
+
+    try:
+        result = context.client.flush()
+        if inspect.isawaitable(result):
+            asyncio.run(_await(result))
+    except Exception as exc:
+        sys.stderr.write(f"::debug::Langfuse Python flush failed: {exc!r}\n")
+
+
+def _has_context_parameter(experiment_fn: Any) -> bool:
+    try:
+        signature = inspect.signature(experiment_fn)
+    except (TypeError, ValueError):
+        return False
+
+    params = signature.parameters
+    context = params.get("context")
+    if context is None:
+        return False
+    if context.kind not in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    ):
+        return False
+
+    for name, param in params.items():
+        if name == "context":
+            continue
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            continue
+        if param.default is inspect.Parameter.empty:
+            return False
+
+    return True
+
+
+def _load_user_module(script_path: Path) -> Any:
     module_name = "langfuse_user_experiment"
     spec = importlib.util.spec_from_file_location(module_name, script_path)
     if spec is None or spec.loader is None:
@@ -158,8 +235,20 @@ def main() -> int:
         )
         return 0
 
+    if not _has_context_parameter(experiment_fn):
+        _write_status(
+            status_file,
+            Status.contract_error(
+                "Script `experiment` function must accept a `context` parameter. "
+                "See https://github.com/langfuse/experiment-action#script-contract"
+            ),
+        )
+        return 0
+
+    context = None
     try:
-        result = experiment_fn()
+        context = _create_runner_context()
+        result = experiment_fn(context=context)
         # `async def experiment()` returns a coroutine; `def experiment()`
         # that returns a Future/Task is also awaitable. Await both shapes
         # so the experiment body actually runs (and its exceptions surface
@@ -176,6 +265,8 @@ def main() -> int:
                 pass
         _write_status(status_file, Status.from_exception(exc))
         return 0
+    finally:
+        _flush_langfuse(context)
 
     try:
         _write_result(result_file, result)

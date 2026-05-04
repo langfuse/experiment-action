@@ -1,23 +1,26 @@
 """E2E fixture: deterministic dataset-backed experiment against Langfuse."""
 
-import os
+from typing import Any
 
-from langfuse import Evaluation, get_client
+from langfuse import Evaluation, RunnerContext
 
-def uppercase_task(*, item, **kwargs):
+
+def uppercase_task(*, item: Any, **kwargs: Any) -> str:
     value = item["input"] if isinstance(item, dict) else item.input
     return value.upper()
 
 
-def exact_match(*, output, expected_output, **kwargs):
+def exact_match(*, output: str, expected_output: str, **kwargs: Any) -> Evaluation:
     return Evaluation(
         name="exact_match",
         value=1.0 if output == expected_output else 0.0,
-        comment="match" if output == expected_output else f"expected {expected_output!r}, got {output!r}",
+        comment="match"
+        if output == expected_output
+        else f"expected {expected_output!r}, got {output!r}",
     )
 
 
-def avg_accuracy(*, item_results, **kwargs):
+def avg_accuracy(*, item_results: list[Any], **kwargs: Any) -> Evaluation:
     scores = [
         evaluation.value
         for item in item_results
@@ -32,10 +35,8 @@ def avg_accuracy(*, item_results, **kwargs):
     )
 
 
-def experiment():
-    langfuse = get_client()
-    dataset = langfuse.get_dataset(os.environ["LANGFUSE_DATASET_NAME"])
-    return dataset.run_experiment(
+def experiment(context: RunnerContext) -> Any:
+    return context.run_experiment(
         name="Uppercase (py)",
         description="Deterministic string-transform task; no LLM involved.",
         task=uppercase_task,

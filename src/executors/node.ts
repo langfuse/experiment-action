@@ -19,11 +19,11 @@ const WRAPPER_PATH = path.join(__dirname, "wrappers", "node_runner.mjs");
 const JS_SDK_PACKAGE = "@langfuse/client";
 
 /**
- * Installed alongside the SDK so experiment scripts can set up OpenTelemetry
- * tracing without extra scaffolding. Always installed at "latest" — pinning
- * only applies to `JS_SDK_PACKAGE`.
+ * Installed alongside the SDK so the action-owned Node runner can initialize
+ * Langfuse OpenTelemetry tracing before invoking the user's experiment.
+ * Always installed at "latest" — pinning only applies to `JS_SDK_PACKAGE`.
  */
-const JS_SUPPORT_PACKAGES = ["@langfuse/otel", "@opentelemetry/sdk-node"];
+const JS_SUPPORT_PACKAGES = ["@langfuse/tracing", "@langfuse/otel", "@opentelemetry/sdk-node"];
 
 export class NodeScript extends ExperimentScript {
   readonly runtime = "node" as const;

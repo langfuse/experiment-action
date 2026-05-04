@@ -47,11 +47,11 @@ inputs:
   python_sdk_version:
     description: "Version of the Langfuse Python SDK to install via pip (for `.py` experiments). Use a specific version string or `latest`."
     required: false
-    default: "latest"
+    default: "4.6.0b1"
   js_sdk_version:
     description: "Version of the Langfuse JS SDK (`@langfuse/client`) to install via npm (for `.ts` / `.js` / `.mjs` experiments). Use a specific version string or `latest`."
     required: false
-    default: "latest"
+    default: "5.3.0-beta.0"
   should_skip_sdk_installation:
     description: "Skip installing the Langfuse SDK entirely. Use this when you manage the Python/Node environment yourself (e.g. with your own `pip install` / `npm install` step before this action) — the action then trusts the ambient environment to provide `langfuse` / `@langfuse/client` + `tsx`."
     required: false

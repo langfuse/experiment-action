@@ -68707,11 +68707,11 @@ const WRAPPER_PATH = external_node_path_namespaceObject.join(__dirname, "wrapper
  */
 const JS_SDK_PACKAGE = "@langfuse/client";
 /**
- * Installed alongside the SDK so experiment scripts can set up OpenTelemetry
- * tracing without extra scaffolding. Always installed at "latest" — pinning
- * only applies to `JS_SDK_PACKAGE`.
+ * Installed alongside the SDK so the action-owned Node runner can initialize
+ * Langfuse OpenTelemetry tracing before invoking the user's experiment.
+ * Always installed at "latest" — pinning only applies to `JS_SDK_PACKAGE`.
  */
-const JS_SUPPORT_PACKAGES = ["@langfuse/otel", "@opentelemetry/sdk-node"];
+const JS_SUPPORT_PACKAGES = ["@langfuse/tracing", "@langfuse/otel", "@opentelemetry/sdk-node"];
 class NodeScript extends ExperimentScript {
     nodeModulesDir;
     runtime = "node";
@@ -76414,8 +76414,8 @@ const InputsSchema = object({
     shouldFailOnRegression: booleanFromString(true),
     shouldFailOnScriptError: booleanFromString(true),
     shouldCommentOnPr: booleanFromString(true),
-    pythonSdkVersion: stringWithDefault("latest"),
-    jsSdkVersion: stringWithDefault("latest"),
+    pythonSdkVersion: stringWithDefault("4.6.0b1"),
+    jsSdkVersion: stringWithDefault("5.3.0-beta.0"),
     shouldSkipSdkInstallation: booleanFromString(false),
     // action.yml can't default `github_token` to `${{ github.token }}` — that
     // expression is invalid inside an action manifest. Callers that want PR

@@ -2,22 +2,22 @@
  * E2E fixture: deterministic dataset-backed experiment against Langfuse.
  *
  * Mirrors `experiment.py`. Pure string-transform task (no LLM), per-item and
- * run-level evaluators. OpenTelemetry is initialized so experiment traces land
- * in Langfuse alongside the returned result.
+ * run-level evaluators.
  */
-import { LangfuseClient } from "@langfuse/client";
-import { LangfuseSpanProcessor } from "@langfuse/otel";
-import { NodeSDK } from "@opentelemetry/sdk-node";
+import type {
+  EvaluatorParams,
+  ExperimentTaskParams,
+  RunEvaluatorParams,
+  RunnerContext,
+} from "@langfuse/client";
 
-const uppercaseTask = async (item: { input?: unknown }) => String(item.input).toUpperCase();
+type Input = string;
+type ExpectedOutput = string;
 
-const exactMatch = async ({
-  output,
-  expectedOutput,
-}: {
-  output: string;
-  expectedOutput: string;
-}) => {
+const uppercaseTask = async (item: ExperimentTaskParams<Input, ExpectedOutput>) =>
+  String(item.input).toUpperCase();
+
+const exactMatch = async ({ output, expectedOutput }: EvaluatorParams<Input, ExpectedOutput>) => {
   const ok = output === expectedOutput;
   return {
     name: "exact_match",
@@ -28,11 +28,7 @@ const exactMatch = async ({
   };
 };
 
-const avgAccuracy = async ({
-  itemResults,
-}: {
-  itemResults: Array<{ evaluations: Array<{ name: string; value: number | null }> }>;
-}) => {
+const avgAccuracy = async ({ itemResults }: RunEvaluatorParams<Input, ExpectedOutput>) => {
   const scores = itemResults
     .flatMap((r) => r.evaluations)
     .filter((e) => e.name === "exact_match")
@@ -45,24 +41,12 @@ const avgAccuracy = async ({
   };
 };
 
-export async function experiment() {
-  const otelSdk = new NodeSDK({ spanProcessors: [new LangfuseSpanProcessor()] });
-  otelSdk.start();
-  try {
-    const langfuse = new LangfuseClient();
-    const datasetName = process.env.LANGFUSE_DATASET_NAME;
-    if (!datasetName) {
-      throw new Error("LANGFUSE_DATASET_NAME is required");
-    }
-    const dataset = await langfuse.dataset.get(datasetName);
-    return await dataset.runExperiment({
-      name: "Uppercase (ts)",
-      description: "Deterministic string-transform task; no LLM involved.",
-      task: uppercaseTask,
-      evaluators: [exactMatch],
-      runEvaluators: [avgAccuracy],
-    });
-  } finally {
-    await otelSdk.shutdown();
-  }
+export async function experiment(context: RunnerContext<Input, ExpectedOutput>) {
+  return await context.runExperiment({
+    name: "Uppercase (ts)",
+    description: "Deterministic string-transform task; no LLM involved.",
+    task: uppercaseTask,
+    evaluators: [exactMatch],
+    runEvaluators: [avgAccuracy],
+  });
 }
