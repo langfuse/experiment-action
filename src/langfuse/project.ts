@@ -53,12 +53,12 @@ export function buildExperimentResultsUrl(params: {
 export function buildDatasetItemUrl(params: {
   baseUrl: string;
   projectId: string;
-  datasetName: string;
+  datasetId: string;
   itemId: string;
 }): string {
-  const { baseUrl, projectId, datasetName, itemId } = params;
+  const { baseUrl, projectId, datasetId, itemId } = params;
   const base = stripTrailingSlash(baseUrl);
-  return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetName)}/items/${encodeURIComponent(itemId)}`;
+  return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/items/${encodeURIComponent(itemId)}`;
 }
 
 function stripTrailingSlash(s: string): string {

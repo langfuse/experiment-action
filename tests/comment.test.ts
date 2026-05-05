@@ -79,6 +79,7 @@ const pyDatasetPassingResult: ScriptResult = scriptResultFromRaw({
         item: {
           id: "a895fde1-36b2-43cd-8ab5-841541a81460",
           dataset_name: "test-dataset-versioning-950dc53a",
+          dataset_id: "dataset_123",
           input: "hello",
           expected_output: "HELLO",
         },

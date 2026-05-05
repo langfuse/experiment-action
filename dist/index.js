@@ -67562,9 +67562,9 @@ function buildExperimentResultsUrl(params) {
     return `${base}/project/${encodeURIComponent(projectId)}/experiments/results?baseline=${encodeURIComponent(experimentId)}`;
 }
 function buildDatasetItemUrl(params) {
-    const { baseUrl, projectId, datasetName, itemId } = params;
+    const { baseUrl, projectId, datasetId, itemId } = params;
     const base = stripTrailingSlash(baseUrl);
-    return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetName)}/items/${encodeURIComponent(itemId)}`;
+    return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/items/${encodeURIComponent(itemId)}`;
 }
 function stripTrailingSlash(s) {
     return s.endsWith("/") ? s.slice(0, -1) : s;
@@ -68225,12 +68225,12 @@ function extractLangfuseProjectRef(langfuseUrl) {
 }
 function itemLinkUrl(itemResult, langfuseUrl) {
     const itemId = typeof itemResult.item.id === "string" ? itemResult.item.id : undefined;
-    const datasetName = typeof itemResult.item.dataset_name === "string"
-        ? itemResult.item.dataset_name
-        : typeof itemResult.item.datasetName === "string"
-            ? itemResult.item.datasetName
+    const datasetId = typeof itemResult.item.dataset_id === "string"
+        ? itemResult.item.dataset_id
+        : typeof itemResult.item.datasetId === "string"
+            ? itemResult.item.datasetId
             : undefined;
-    if (!itemId || !datasetName)
+    if (!itemId || !datasetId)
         return undefined;
     const projectRef = extractLangfuseProjectRef(langfuseUrl);
     if (!projectRef)
@@ -68238,7 +68238,7 @@ function itemLinkUrl(itemResult, langfuseUrl) {
     return buildDatasetItemUrl({
         baseUrl: projectRef.baseUrl,
         projectId: projectRef.projectId,
-        datasetName,
+        datasetId,
         itemId,
     });
 }
