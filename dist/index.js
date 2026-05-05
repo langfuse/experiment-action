@@ -68372,6 +68372,21 @@ function buildFreshCommentBody(runId, titleOpts, sections) {
     const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");
     return refreshOverview(`${body.trimEnd()}\n`);
 }
+function refreshCommentTitle(body, titleOpts) {
+    const title = renderCommentTitle(titleOpts);
+    const lines = body.split("\n");
+    const titleIdx = lines.findIndex((line) => line.startsWith(`### <img src="${LANGFUSE_ICON}"`));
+    if (titleIdx !== -1) {
+        lines[titleIdx] = title;
+        return lines.join("\n");
+    }
+    const markerIdx = lines.findIndex((line) => line.startsWith("<!-- langfuse-experiment-action run_id="));
+    if (markerIdx !== -1) {
+        lines.splice(markerIdx + 1, 0, "", title);
+        return lines.join("\n");
+    }
+    return `${title}\n\n${body.replace(/^\s+/, "")}`;
+}
 /**
  * Replace an existing section keyed on `scriptPath` in place, or append it
  * to the end of the body if none exists.
@@ -68426,12 +68441,13 @@ async function postPrComment(opts) {
             per_page: 100,
         });
         const match = existing.find((c) => typeof c.body === "string" && c.body.includes(marker));
+        const titleOpts = { shortSha, runAttempt };
         let body;
         if (match) {
-            body = match.body ?? marker;
+            body = refreshCommentTitle(match.body ?? marker, titleOpts);
         }
         else {
-            body = buildFreshCommentBody(runId, { shortSha, runAttempt }, []);
+            body = buildFreshCommentBody(runId, titleOpts, []);
         }
         for (const { scriptPath, markdown } of sections) {
             body = upsertSection(body, scriptPath, markdown);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFreshCommentBody,
+  refreshCommentTitle,
   renderCommentTitle,
   renderScriptSection,
   upsertSection,
@@ -277,6 +278,28 @@ describe("renderCommentTitle", () => {
   it("drops the suffix entirely when neither SHA nor attempt > 1 is available", () => {
     expect(renderCommentTitle({})).toBe(
       '### <img src="https://langfuse.com/brand-assets/icon/color/langfuse-icon.png" height="32" alt="" align="center" /> Experiment Results',
+    );
+  });
+});
+
+describe("refreshCommentTitle", () => {
+  it("updates an existing first-attempt title on reruns", () => {
+    const body = [
+      "<!-- langfuse-experiment-action run_id=12345 -->",
+      renderCommentTitle({ shortSha: "abc1234", runAttempt: 1 }),
+      "",
+      "existing section",
+      "",
+    ].join("\n");
+
+    expect(refreshCommentTitle(body, { shortSha: "abc1234", runAttempt: 3 })).toBe(
+      [
+        "<!-- langfuse-experiment-action run_id=12345 -->",
+        renderCommentTitle({ shortSha: "abc1234", runAttempt: 3 }),
+        "",
+        "existing section",
+        "",
+      ].join("\n"),
     );
   });
 });
