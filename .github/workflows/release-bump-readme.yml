@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pull-requests: write
 
 jobs:
@@ -50,6 +51,7 @@ jobs:
             Updates every `langfuse/experiment-action@…` reference in the README
             to `@${{ steps.bump.outputs.sha }} # ${{ steps.bump.outputs.tag }}`.
           labels: docs, automated
+          assignees: ${{ github.event.sender.login }}
           delete-branch: true
       # Merge automatically once required status checks pass. Requires
       # "Allow auto-merge" to be enabled in the repository settings.
