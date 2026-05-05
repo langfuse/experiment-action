@@ -1,5 +1,10 @@
 import * as core from "@actions/core";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@actions/core", () => ({
+  debug: vi.fn(),
+  setOutput: vi.fn(),
+}));
 
 import { resolveLangfuseExperimentUrl } from "@/experiment-result";
 import { setOutputs } from "@/output";
@@ -8,8 +13,8 @@ import type { RawScriptResult } from "@/types";
 
 import { scriptResultFromRaw } from "./helpers/script-results";
 
-function getOutputValue(spy: ReturnType<typeof vi.spyOn>, name: string): string {
-  const match = spy.mock.calls.find((call) => call[0] === name);
+function getOutputValue(name: string): string {
+  const match = vi.mocked(core.setOutput).mock.calls.find((call) => call[0] === name);
   if (!match) {
     throw new Error(`Expected output ${name} to be set`);
   }
@@ -17,10 +22,11 @@ function getOutputValue(spy: ReturnType<typeof vi.spyOn>, name: string): string 
 }
 
 describe("setOutputs", () => {
-  it("emits a versioned envelope for a passing experiment result", () => {
-    const setOutput = vi.spyOn(core, "setOutput").mockImplementation(() => {});
-    vi.spyOn(core, "debug").mockImplementation(() => {});
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
+  it("emits a versioned envelope for a passing experiment result", () => {
     const rawResult: RawScriptResult = {
       scriptPath: "/tmp/experiment.py",
       scriptName: "experiment.py",
@@ -65,7 +71,7 @@ describe("setOutputs", () => {
       actionMetadata: { "langfuse.git_sha": "abc123" },
     });
 
-    const payload = JSON.parse(getOutputValue(setOutput, "result_json")) as OutputEnvelope;
+    const payload = JSON.parse(getOutputValue("result_json")) as OutputEnvelope;
 
     expect(payload).toEqual({
       schema_version: RESULT_JSON_SCHEMA_VERSION,
@@ -105,13 +111,10 @@ describe("setOutputs", () => {
         },
       ],
     });
-    expect(getOutputValue(setOutput, "failed")).toBe("false");
+    expect(getOutputValue("failed")).toBe("false");
   });
 
   it("builds the regression output envelope from the resolved experiment URL", () => {
-    const setOutput = vi.spyOn(core, "setOutput").mockImplementation(() => {});
-    vi.spyOn(core, "debug").mockImplementation(() => {});
-
     const rawResult: RawScriptResult = {
       scriptPath: "/tmp/experiment.ts",
       scriptName: "experiment.ts",
@@ -143,7 +146,7 @@ describe("setOutputs", () => {
       actionMetadata: { "langfuse.event": "pull_request" },
     });
 
-    const payload = JSON.parse(getOutputValue(setOutput, "result_json")) as OutputEnvelope;
+    const payload = JSON.parse(getOutputValue("result_json")) as OutputEnvelope;
     expect(payload.results[0]).toEqual({
       script_path: "/tmp/experiment.ts",
       script_name: "experiment.ts",
@@ -166,6 +169,6 @@ describe("setOutputs", () => {
         item_results: [],
       },
     });
-    expect(getOutputValue(setOutput, "failed")).toBe("true");
+    expect(getOutputValue("failed")).toBe("true");
   });
 });
