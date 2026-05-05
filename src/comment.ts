@@ -349,13 +349,13 @@ function itemLinkUrl(
   langfuseUrl?: string,
 ): string | undefined {
   const itemId = typeof itemResult.item.id === "string" ? itemResult.item.id : undefined;
-  const datasetName =
-    typeof itemResult.item.dataset_name === "string"
-      ? itemResult.item.dataset_name
-      : typeof itemResult.item.datasetName === "string"
-        ? itemResult.item.datasetName
+  const datasetId =
+    typeof itemResult.item.dataset_id === "string"
+      ? itemResult.item.dataset_id
+      : typeof itemResult.item.datasetId === "string"
+        ? itemResult.item.datasetId
         : undefined;
-  if (!itemId || !datasetName) return undefined;
+  if (!itemId || !datasetId) return undefined;
 
   const projectRef = extractLangfuseProjectRef(langfuseUrl);
   if (!projectRef) return undefined;
@@ -363,7 +363,7 @@ function itemLinkUrl(
   return buildDatasetItemUrl({
     baseUrl: projectRef.baseUrl,
     projectId: projectRef.projectId,
-    datasetName,
+    datasetId,
     itemId,
   });
 }

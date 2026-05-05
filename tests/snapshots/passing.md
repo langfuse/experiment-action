@@ -25,7 +25,7 @@
 
 | Item | Input | Expected | Output | exact_match |
 | --- | --- | --- | --- | --- |
-| [1](http://localhost:3000/project/7a88fb47-b4e2-43b8-a06c-a5ce950dc53a/datasets/test-dataset-versioning-950dc53a/items/a895fde1-36b2-43cd-8ab5-841541a81460) | hello | HELLO | HELLO | 1.000 |
+| [1](http://localhost:3000/project/7a88fb47-b4e2-43b8-a06c-a5ce950dc53a/datasets/dataset_123/items/a895fde1-36b2-43cd-8ab5-841541a81460) | hello | HELLO | HELLO | 1.000 |
 
 </details>
 
