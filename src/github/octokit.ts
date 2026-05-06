@@ -22,14 +22,24 @@ export function makeOctokit(token: string): ReturnType<typeof github.getOctokit>
     token,
     {
       throttle: {
-        onRateLimit: (retryAfter, options, _octokit, retryCount) => {
+        onRateLimit: (
+          retryAfter: number,
+          options: { method: string; url: string },
+          _octokit: unknown,
+          retryCount: number,
+        ) => {
           core.warning(
             `Primary rate limit hit on ${options.method} ${options.url}; ` +
               `waiting ${retryAfter}s before retry ${retryCount + 1}/3.`,
           );
           return retryCount < 3;
         },
-        onSecondaryRateLimit: (retryAfter, options, _octokit, retryCount) => {
+        onSecondaryRateLimit: (
+          retryAfter: number,
+          options: { method: string; url: string },
+          _octokit: unknown,
+          retryCount: number,
+        ) => {
           core.warning(
             `Secondary rate limit hit on ${options.method} ${options.url}; ` +
               `waiting ${retryAfter}s before retry ${retryCount + 1}/3.`,
