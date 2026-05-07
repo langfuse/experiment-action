@@ -94,7 +94,7 @@ repository — blank issues on this repo are disabled to keep reporting in
 one place.
 
 - **Bug in the action** or **bug in Langfuse itself (SDK, API, UI)** →
-  open a bug report in `langfuse/langfuse` with the `Experiment Action`
+  open a bug report in `langfuse/langfuse` with the `experiment-action`
   label. The links under "New issue" on this repo route there
   automatically.
 - **Feature requests** → the `ideas` category in
