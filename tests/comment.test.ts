@@ -232,6 +232,30 @@ describe("renderScriptSection snapshots", () => {
     expect(section).not.toContain("2026-04-20T");
   });
 
+  it("truncates table cells before escaping markdown characters", () => {
+    const input = `${"a".repeat(78)}|tail`;
+    const section = renderScriptSection({
+      result: {
+        ...pyPassingResult,
+        normalizedResult: normalizeExperimentResult({
+          name: "Uppercase task",
+          experiment_id: "0f212f9182320769",
+          run_evaluations: [{ name: "avg_accuracy", value: 1 }],
+          item_results: [
+            {
+              item: { input, expected_output: "expected" },
+              output: "actual",
+              evaluations: [{ name: "exact_match", value: 0 }],
+            },
+          ],
+        }),
+      },
+    });
+
+    expect(section).toContain(`${"a".repeat(78)}\\|…`);
+    expect(section).not.toContain(`${"a".repeat(78)}\\…`);
+  });
+
   it("caps the per-item table and adds a truncation note when there are many items", () => {
     // 60 synthetic items → over the 50-row cap.
     const manyItems = Array.from({ length: 60 }, (_, i) => ({
