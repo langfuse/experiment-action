@@ -11,7 +11,8 @@
 Run a [Langfuse](https://langfuse.com) experiment in your CI pipeline. The
 action loads your experiment script, runs it against a Langfuse dataset,
 comments the result on the PR, and optionally fails the job when a regression
-is detected.
+is detected. Learn more in the Langfuse docs on
+[testing experiments in CI environments](https://langfuse.com/docs/evaluation/experiments/experiments-via-sdk#testing-in-ci-environments).
 
 ## Contents
 
