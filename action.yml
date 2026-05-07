@@ -2,7 +2,7 @@ name: "Langfuse Experiment"
 description: "Run a Langfuse experiment in CI, gate on regressions, and comment results on the PR."
 author: "Langfuse"
 branding:
-  icon: "activity"
+  icon: "shield"
   color: "purple"
 
 inputs:
