@@ -43185,32 +43185,23 @@ class NodeScript extends ExperimentScript {
         });
     }
 }
-async function readJsSdkVersion(nodeModulesDir) {
-    try {
-        const raw = await promises_namespaceObject.readFile(external_node_path_namespaceObject.join(nodeModulesDir, JS_SDK_PACKAGE, "package.json"), "utf8");
-        const pkg = JSON.parse(raw);
-        return pkg.version ?? null;
-    }
-    catch {
-        return null;
-    }
-}
 /**
- * Stable directory where the Node runtime packages live for the duration of
- * a job. Using a fixed path (under `$RUNNER_TEMP` when available, OS tmpdir
- * otherwise) means repeated action invocations within the same job see the
- * existing install and can skip `npm install`.
+ * Private directory where the Node runtime packages live for this action
+ * invocation. Use a freshly-created temp directory instead of a predictable
+ * shared path so self-hosted/shared runners cannot pre-seed files there.
  */
-function nodeSdkRoot() {
+async function createNodeSdkRoot() {
     const base = process.env.RUNNER_TEMP ?? external_node_os_namespaceObject.tmpdir();
-    return external_node_path_namespaceObject.join(base, "langfuse-experiment-action", "node");
+    await promises_namespaceObject.mkdir(base, { recursive: true });
+    const tmpRoot = await promises_namespaceObject.mkdtemp(external_node_path_namespaceObject.join(base, "langfuse-experiment-action-node-"));
+    await promises_namespaceObject.chmod(tmpRoot, 0o700);
+    return tmpRoot;
 }
 /**
  * Install the Langfuse JS SDK (and OTel support packages + tsx) into a
- * stable directory. Skips `npm install` only when a specific version was
- * requested and the same version is already present — common on repeat
- * invocations in a single job. For `latest` we always run npm so an older
- * cached install gets upgraded.
+ * private temporary directory. Each action invocation installs into a fresh
+ * directory to avoid trusting predictable shared temp paths on self-hosted
+ * runners.
  *
  * When `skipInstallation` is true we don't install anything and instead
  * return the caller's CWD `node_modules` — the user's workflow is expected
@@ -43222,28 +43213,9 @@ async function ensureNodeSdk(sdkVersion, skipInstallation) {
         info(`JS SDK install skipped (should_skip_sdk_installation=true) — using ${cwdNodeModules}.`);
         return cwdNodeModules;
     }
-    const tmpRoot = nodeSdkRoot();
+    const tmpRoot = await createNodeSdkRoot();
     const nodeModulesDir = external_node_path_namespaceObject.join(tmpRoot, "node_modules");
-    await promises_namespaceObject.mkdir(tmpRoot, { recursive: true });
-    const pkgPath = external_node_path_namespaceObject.join(tmpRoot, "package.json");
-    try {
-        await promises_namespaceObject.access(pkgPath);
-    }
-    catch {
-        await promises_namespaceObject.writeFile(pkgPath, JSON.stringify({ name: "langfuse-action-runtime", private: true, type: "module" }, null, 2));
-    }
-    // Skip only on exact-version match. For `latest` we always run npm so an
-    // older cached copy actually gets upgraded to the current latest — skipping
-    // purely because *something* is there would silently violate the contract.
-    const existing = await readJsSdkVersion(nodeModulesDir);
-    if (existing && sdkVersion !== "latest" && existing === sdkVersion) {
-        info(`JS SDK already present (${JS_SDK_PACKAGE}@${existing}); skipping install.`);
-        return nodeModulesDir;
-    }
-    if (existing) {
-        core_debug(`${JS_SDK_PACKAGE} ${existing} already at ${nodeModulesDir}; running npm to ` +
-            `${sdkVersion === "latest" ? "refresh to latest" : `switch to ${sdkVersion}`}.`);
-    }
+    await promises_namespaceObject.writeFile(external_node_path_namespaceObject.join(tmpRoot, "package.json"), JSON.stringify({ name: "langfuse-action-runtime", private: true, type: "module" }, null, 2));
     const sdkSpec = sdkVersion === "latest" ? `${JS_SDK_PACKAGE}@latest` : `${JS_SDK_PACKAGE}@${sdkVersion}`;
     const specs = [sdkSpec, ...JS_SUPPORT_PACKAGES, "tsx"];
     info(`Installing JS SDK into ${tmpRoot}: ${specs.join(", ")}`);

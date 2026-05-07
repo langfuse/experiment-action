@@ -62,36 +62,24 @@ export class NodeScript extends ExperimentScript {
   }
 }
 
-async function readJsSdkVersion(nodeModulesDir: string): Promise<string | null> {
-  try {
-    const raw = await fs.readFile(
-      path.join(nodeModulesDir, JS_SDK_PACKAGE, "package.json"),
-      "utf8",
-    );
-    const pkg = JSON.parse(raw) as { version?: string };
-    return pkg.version ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Stable directory where the Node runtime packages live for the duration of
- * a job. Using a fixed path (under `$RUNNER_TEMP` when available, OS tmpdir
- * otherwise) means repeated action invocations within the same job see the
- * existing install and can skip `npm install`.
+ * Private directory where the Node runtime packages live for this action
+ * invocation. Use a freshly-created temp directory instead of a predictable
+ * shared path so self-hosted/shared runners cannot pre-seed files there.
  */
-function nodeSdkRoot(): string {
+async function createNodeSdkRoot(): Promise<string> {
   const base = process.env.RUNNER_TEMP ?? os.tmpdir();
-  return path.join(base, "langfuse-experiment-action", "node");
+  await fs.mkdir(base, { recursive: true });
+  const tmpRoot = await fs.mkdtemp(path.join(base, "langfuse-experiment-action-node-"));
+  await fs.chmod(tmpRoot, 0o700);
+  return tmpRoot;
 }
 
 /**
  * Install the Langfuse JS SDK (and OTel support packages + tsx) into a
- * stable directory. Skips `npm install` only when a specific version was
- * requested and the same version is already present — common on repeat
- * invocations in a single job. For `latest` we always run npm so an older
- * cached install gets upgraded.
+ * private temporary directory. Each action invocation installs into a fresh
+ * directory to avoid trusting predictable shared temp paths on self-hosted
+ * runners.
  *
  * When `skipInstallation` is true we don't install anything and instead
  * return the caller's CWD `node_modules` — the user's workflow is expected
@@ -109,34 +97,12 @@ export async function ensureNodeSdk(
     return cwdNodeModules;
   }
 
-  const tmpRoot = nodeSdkRoot();
+  const tmpRoot = await createNodeSdkRoot();
   const nodeModulesDir = path.join(tmpRoot, "node_modules");
-  await fs.mkdir(tmpRoot, { recursive: true });
-
-  const pkgPath = path.join(tmpRoot, "package.json");
-  try {
-    await fs.access(pkgPath);
-  } catch {
-    await fs.writeFile(
-      pkgPath,
-      JSON.stringify({ name: "langfuse-action-runtime", private: true, type: "module" }, null, 2),
-    );
-  }
-
-  // Skip only on exact-version match. For `latest` we always run npm so an
-  // older cached copy actually gets upgraded to the current latest — skipping
-  // purely because *something* is there would silently violate the contract.
-  const existing = await readJsSdkVersion(nodeModulesDir);
-  if (existing && sdkVersion !== "latest" && existing === sdkVersion) {
-    core.info(`JS SDK already present (${JS_SDK_PACKAGE}@${existing}); skipping install.`);
-    return nodeModulesDir;
-  }
-  if (existing) {
-    core.debug(
-      `${JS_SDK_PACKAGE} ${existing} already at ${nodeModulesDir}; running npm to ` +
-        `${sdkVersion === "latest" ? "refresh to latest" : `switch to ${sdkVersion}`}.`,
-    );
-  }
+  await fs.writeFile(
+    path.join(tmpRoot, "package.json"),
+    JSON.stringify({ name: "langfuse-action-runtime", private: true, type: "module" }, null, 2),
+  );
 
   const sdkSpec =
     sdkVersion === "latest" ? `${JS_SDK_PACKAGE}@latest` : `${JS_SDK_PACKAGE}@${sdkVersion}`;
