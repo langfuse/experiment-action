@@ -16,6 +16,7 @@ is detected.
 ## Contents
 
 - [Quickstart](#quickstart)
+- [Examples](#examples)
 - [Usage](#usage)
   - [Inputs](#inputs)
   - [Outputs](#outputs)
@@ -79,6 +80,16 @@ jobs:
 
 Only include the setup steps you actually need — Python-only projects can
 drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
+
+## Examples
+
+- [Run the same experiment against two datasets by repeating the action step](examples/repeated-steps.yml).
+- [Run the same experiment against two datasets with a GitHub Actions matrix](examples/matrix.yml).
+
+Both examples disable PR comments because they reuse the same
+`experiment_path` for multiple datasets in the same workflow run. Remove
+`should_comment_on_pr: "false"` if each invocation uses a distinct experiment
+script path, or if you only need one invocation to publish the PR comment.
 
 ## Usage
 
