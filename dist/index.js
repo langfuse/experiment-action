@@ -39061,7 +39061,10 @@ function stringifyCell(v) {
 /** Escape + truncate a value to fit inside a markdown table cell. */
 function cell(v, maxLen = CELL_MAX) {
     let s = stringifyCell(v);
-    s = s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+    s = s
+        .replace(/\\/g, "\\\\")
+        .replace(/\|/g, "\\|")
+        .replace(/[\r\n]+/g, " ");
     if (s.length > maxLen)
         s = s.slice(0, maxLen - 1) + "…";
     return s || "—";
