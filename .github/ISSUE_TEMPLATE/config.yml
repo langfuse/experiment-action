@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: 🐞 Bug Report
-    url: https://github.com/langfuse/langfuse/issues/new?labels=%F0%9F%90%9E%E2%9D%94+unconfirmed+bug,Experiment+Action&template=bug_report.yml&title=bug(experiment-action)%3A+
+    url: https://github.com/langfuse/langfuse/issues/new?labels=%F0%9F%90%9E%E2%9D%94+unconfirmed+bug,experiment-action&template=bug_report.yml&title=bug(experiment-action)%3A+
     about: Create a bug report to help us improve the Experiment Action.
   - name: 💡 Feature Request
-    url: https://github.com/orgs/langfuse/discussions/new?category=ideas&title=Experiment+Action%3A%20&labels=Experiment+Action
+    url: https://github.com/orgs/langfuse/discussions/new?category=ideas&title=Experiment+Action%3A%20&labels=experiment-action
     about: Suggest any ideas you have using our discussion forums.
   - name: 🤗 Get Help
-    url: https://github.com/orgs/langfuse/discussions/new?category=support&title=Experiment+Action%3A%20&labels=Experiment+Action
+    url: https://github.com/orgs/langfuse/discussions/new?category=support&title=Experiment+Action%3A%20&labels=experiment-action
     about: If you can't get something to work the way you expect, open a question in our discussion forums.
