@@ -42,7 +42,7 @@
     "@eslint/js": "^10.0.1",
     "@langfuse/client": "5.3.0",
     "@types/node": "^25.6.0",
-    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/eslint-plugin": "^8.59.2",
     "@typescript-eslint/parser": "^8.59.0",
     "@valibot/to-json-schema": "1.6.0",
     "@vercel/ncc": "^0.38.2",
