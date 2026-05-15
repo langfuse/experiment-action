@@ -43033,9 +43033,15 @@ async function setupExperimentScripts(discovered, options) {
     });
 }
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.3.1_typescript@6.0.3/node_modules/valibot/dist/index.mjs
+;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.0_typescript@6.0.3/node_modules/valibot/dist/index.mjs
 //#region src/storages/globalConfig/globalConfig.ts
 let store$4;
+const DEFAULT_CONFIG = {
+	lang: void 0,
+	message: void 0,
+	abortEarly: void 0,
+	abortPipeEarly: void 0
+};
 /**
 * Sets the global configuration.
 *
@@ -43056,6 +43062,7 @@ function setGlobalConfig(config$1) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function getGlobalConfig(config$1) {
+	if (!config$1 && !store$4) return DEFAULT_CONFIG;
 	return {
 		lang: config$1?.lang ?? store$4?.lang,
 		message: config$1?.message,
@@ -43256,6 +43263,82 @@ function _cloneDataset(dataset) {
 }
 
 //#endregion
+//#region src/utils/_formatCase/_formatCase.ts
+/**
+* Splits a string into lowercase words and rejoins them with the given
+* separator and capitalization rules.
+*
+* Words are separated by `_`, `-` and ASCII whitespace, as well as by case
+* and acronym boundaries. Whether the first or subsequent words are
+* capitalized is controlled by `capFirst` and `capRest`.
+*
+* Hint: Implemented in a single pass that emits directly to the result
+* string to avoid an intermediate `string[]` allocation. ASCII chars are
+* classified via char codes to skip `.toLowerCase()` and `.toUpperCase()`
+* method calls in the common case.
+*
+* Hint: Digits are treated as a separate character class, so `item2Name`
+* yields `item2` and `name` rather than `item`, `2` and `name`.
+*
+* @param input The input string.
+* @param separator The string inserted between words.
+* @param capFirst Whether to capitalize the first word.
+* @param capRest Whether to capitalize subsequent words.
+*
+* @returns The formatted string.
+*
+* @internal
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function _formatCase(input, separator, capFirst, capRest) {
+	let result = "";
+	let firstWord = true;
+	let start = 0;
+	let prev = 0;
+	let prevPrev = 0;
+	const flush = (end) => {
+		if (end > start) {
+			let word = input.slice(start, end).toLowerCase();
+			if (firstWord ? capFirst : capRest) {
+				const firstCode = word.charCodeAt(0);
+				if (firstCode >= 97 && firstCode <= 122) word = String.fromCharCode(firstCode - 32) + word.slice(1);
+				else {
+					const charLen = firstCode >= 55296 && firstCode <= 56319 ? 2 : 1;
+					word = word.slice(0, charLen).toUpperCase() + word.slice(charLen);
+				}
+			}
+			result += firstWord ? word : separator + word;
+			firstWord = false;
+		}
+	};
+	for (let index = 0; index < input.length; index++) {
+		const code = input.charCodeAt(index);
+		let type;
+		if (code === 32 || code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 45 || code === 95) {
+			flush(index);
+			start = index + 1;
+			type = 0;
+		} else if (code < 128) type = code >= 65 && code <= 90 ? 1 : code >= 97 && code <= 122 ? 2 : 3;
+		else {
+			const char = input[index];
+			const charLower = char.toLowerCase();
+			type = charLower === char.toUpperCase() ? 3 : char === charLower ? 2 : 1;
+		}
+		if (type === 1 && (prev === 2 || prev === 3) && index > start) {
+			flush(index);
+			start = index;
+		} else if (type === 2 && prev === 1 && prevPrev === 1 && index - 1 > start) {
+			flush(index - 1);
+			start = index - 1;
+		}
+		prevPrev = prev;
+		prev = type;
+	}
+	flush(input.length);
+	return result;
+}
+
+//#endregion
 //#region src/utils/_getByteCount/_getByteCount.ts
 let textEncoder;
 /**
@@ -43325,6 +43408,7 @@ function _getLastMetadata(schema, type) {
 
 //#endregion
 //#region src/utils/_getStandardProps/_getStandardProps.ts
+const _standardCache = /* @__PURE__ */ new WeakMap();
 /**
 * Returns the Standard Schema properties.
 *
@@ -43334,13 +43418,18 @@ function _getLastMetadata(schema, type) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function _getStandardProps(context) {
-	return {
-		version: 1,
-		vendor: "valibot",
-		validate(value$1) {
-			return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
-		}
-	};
+	let cached = _standardCache.get(context);
+	if (!cached) {
+		cached = {
+			version: 1,
+			vendor: "valibot",
+			validate(value$1) {
+				return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
+			}
+		};
+		_standardCache.set(context, cached);
+	}
+	return cached;
 }
 
 //#endregion
@@ -43421,7 +43510,7 @@ function _isLuhnAlgo(input) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function _isValidObjectKey(object$1, key) {
-	return Object.hasOwn(object$1, key) && key !== "__proto__" && key !== "prototype" && key !== "constructor";
+	return Object.prototype.hasOwnProperty.call(object$1, key) && key !== "__proto__" && key !== "prototype" && key !== "constructor";
 }
 
 //#endregion
@@ -43687,6 +43776,10 @@ const ISO_DATE_REGEX = /^\d{4}-(?:0[1-9]|1[0-2])-(?:[12]\d|0[1-9]|3[01])$/u;
 * [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) date-time regex.
 */
 const ISO_DATE_TIME_REGEX = /^\d{4}-(?:0[1-9]|1[0-2])-(?:[12]\d|0[1-9]|3[01])[T ](?:0\d|1\d|2[0-3]):[0-5]\d$/u;
+/**
+* [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) date-time with seconds regex.
+*/
+const ISO_DATE_TIME_SECOND_REGEX = /^\d{4}-(?:0[1-9]|1[0-2])-(?:[12]\d|0[1-9]|3[01])[T ](?:0\d|1\d|2[0-3])(?::[0-5]\d){2}$/u;
 /**
 * [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) time regex.
 */
@@ -43968,7 +44061,7 @@ const PROVIDER_REGEX_LIST = (/* unused pure expression or super */ null && ([
 	/^3(?:0[0-5]|[68]\d)\d{11,13}$/u,
 	/^6(?:011|5\d{2})\d{12,15}$/u,
 	/^(?:2131|1800|35\d{3})\d{11}$/u,
-	/^5[1-5]\d{2}|(?:222\d|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)\d{12}$/u,
+	/^(?:5[1-5]\d{2}|222\d|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)\d{12}$/u,
 	/^(?:6[27]\d{14,17}|81\d{14,17})$/u,
 	/^4\d{12}(?:\d{3,6})?$/u
 ]));
@@ -44700,6 +44793,25 @@ function isoDateTime(message$1) {
 		message: message$1,
 		"~run"(dataset, config$1) {
 			if (dataset.typed && !this.requirement.test(dataset.value)) _addIssue(this, "date-time", dataset, config$1);
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/isoDateTimeSecond/isoDateTimeSecond.ts
+/* @__NO_SIDE_EFFECTS__ */
+function isoDateTimeSecond(message$1) {
+	return {
+		kind: "validation",
+		type: "iso_date_time_second",
+		reference: isoDateTimeSecond,
+		async: false,
+		expects: null,
+		requirement: ISO_DATE_TIME_SECOND_REGEX,
+		message: message$1,
+		"~run"(dataset, config$1) {
+			if (dataset.typed && !this.requirement.test(dataset.value)) _addIssue(this, "date-time-second", dataset, config$1);
 			return dataset;
 		}
 	};
@@ -46075,6 +46187,36 @@ function toBoolean() {
 }
 
 //#endregion
+//#region src/actions/toCamelCase/toCamelCase.ts
+/**
+* Creates a to camel case transformation action.
+*
+* Words are separated by `_`, `-` and ASCII whitespace, as well as by case
+* and acronym boundaries.
+*
+* Hint: Acronym runs are normalized to lowercase (e.g. `parseURLValue` →
+* `parseUrlValue`) and digits stay attached to the preceding token (e.g.
+* `item2Name` → `item2Name`).
+*
+* @returns A to camel case action.
+*
+* @beta
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function toCamelCase() {
+	return {
+		kind: "transformation",
+		type: "to_camel_case",
+		reference: toCamelCase,
+		async: false,
+		"~run"(dataset) {
+			dataset.value = /* @__PURE__ */ _formatCase(dataset.value, "", false, true);
+			return dataset;
+		}
+	};
+}
+
+//#endregion
 //#region src/actions/toDate/toDate.ts
 /* @__NO_SIDE_EFFECTS__ */
 function toDate(message$1) {
@@ -46095,6 +46237,36 @@ function toDate(message$1) {
 				_addIssue(this, "date", dataset, config$1);
 				dataset.typed = false;
 			}
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/toKebabCase/toKebabCase.ts
+/**
+* Creates a to kebab case transformation action.
+*
+* Words are separated by `_`, `-` and ASCII whitespace, as well as by case
+* and acronym boundaries.
+*
+* Hint: Acronym runs are normalized to lowercase (e.g. `parseURLValue` →
+* `parse-url-value`) and digits stay attached to the preceding token (e.g.
+* `item2Name` → `item2-name`).
+*
+* @returns A to kebab case action.
+*
+* @beta
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function toKebabCase() {
+	return {
+		kind: "transformation",
+		type: "to_kebab_case",
+		reference: toKebabCase,
+		async: false,
+		"~run"(dataset) {
+			dataset.value = /* @__PURE__ */ _formatCase(dataset.value, "-", false, false);
 			return dataset;
 		}
 	};
@@ -46190,6 +46362,66 @@ function toNumber(message$1) {
 				_addIssue(this, "number", dataset, config$1);
 				dataset.typed = false;
 			}
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/toPascalCase/toPascalCase.ts
+/**
+* Creates a to pascal case transformation action.
+*
+* Words are separated by `_`, `-` and ASCII whitespace, as well as by case
+* and acronym boundaries.
+*
+* Hint: Acronym runs are normalized to lowercase (e.g. `parseURLValue` →
+* `ParseUrlValue`) and digits stay attached to the preceding token (e.g.
+* `item2Name` → `Item2Name`).
+*
+* @returns A to pascal case action.
+*
+* @beta
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function toPascalCase() {
+	return {
+		kind: "transformation",
+		type: "to_pascal_case",
+		reference: toPascalCase,
+		async: false,
+		"~run"(dataset) {
+			dataset.value = /* @__PURE__ */ _formatCase(dataset.value, "", true, true);
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/toSnakeCase/toSnakeCase.ts
+/**
+* Creates a to snake case transformation action.
+*
+* Words are separated by `_`, `-` and ASCII whitespace, as well as by case
+* and acronym boundaries.
+*
+* Hint: Acronym runs are normalized to lowercase (e.g. `parseURLValue` →
+* `parse_url_value`) and digits stay attached to the preceding token (e.g.
+* `item2Name` → `item2_name`).
+*
+* @returns A to snake case action.
+*
+* @beta
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function dist_toSnakeCase() {
+	return {
+		kind: "transformation",
+		type: "to_snake_case",
+		reference: dist_toSnakeCase,
+		async: false,
+		"~run"(dataset) {
+			dataset.value = /* @__PURE__ */ _formatCase(dataset.value, "_", false, false);
 			return dataset;
 		}
 	};
@@ -46475,6 +46707,10 @@ function words(locales, requirement, message$1) {
 }
 
 //#endregion
+//#region src/const.ts
+const ABORT_EARLY_CONFIG = { abortEarly: true };
+
+//#endregion
 //#region src/methods/assert/assert.ts
 /**
 * Checks if the input matches the schema. As this is an assertion function, it
@@ -46484,7 +46720,7 @@ function words(locales, requirement, message$1) {
 * @param input The input to be tested.
 */
 function assert(schema, input) {
-	const issues = schema["~run"]({ value: input }, { abortEarly: true }).issues;
+	const issues = schema["~run"]({ value: input }, ABORT_EARLY_CONFIG).issues;
 	if (issues) throw new ValiError(issues);
 }
 
@@ -46507,14 +46743,14 @@ var _LruCache = class {
 	*
 	* @returns A cache key component.
 	*/
-	#stringify(input) {
+	stringify(input) {
 		const type = typeof input;
 		if (type === "string") return `"${input}"`;
 		if (type === "number" || type === "boolean") return `${input}`;
 		if (type === "bigint") return `${input}n`;
 		if (type === "object" || type === "function") {
 			if (input) {
-				this.refIds ??= /* @__PURE__ */ new WeakMap();
+				this.refIds ?? (this.refIds = /* @__PURE__ */ new WeakMap());
 				let id = this.refIds.get(input);
 				if (!id) {
 					id = ++this.refCount;
@@ -46535,7 +46771,7 @@ var _LruCache = class {
 	* @returns The cache key.
 	*/
 	key(input, config$1 = {}) {
-		return `${this.#stringify(input)}|${this.#stringify(config$1.lang)}|${this.#stringify(config$1.message)}|${this.#stringify(config$1.abortEarly)}|${this.#stringify(config$1.abortPipeEarly)}`;
+		return `${this.stringify(input)}|${this.stringify(config$1.lang)}|${this.stringify(config$1.message)}|${this.stringify(config$1.abortEarly)}|${this.stringify(config$1.abortPipeEarly)}`;
 	}
 	/**
 	* Gets a value from the cache by key.
@@ -46563,7 +46799,7 @@ var _LruCache = class {
 	* @param value The cached value.
 	*/
 	set(key, value$1) {
-		this.store ??= /* @__PURE__ */ new Map();
+		this.store ?? (this.store = /* @__PURE__ */ new Map());
 		this.store.delete(key);
 		const timestamp = this.hasMaxAge ? Date.now() : 0;
 		this.store.set(key, [value$1, timestamp]);
@@ -46616,7 +46852,7 @@ function cacheAsync(schema, config$1) {
 			if (cached) return /* @__PURE__ */ _cloneDataset(cached);
 			let promise$1 = activeRuns?.get(key);
 			if (!promise$1) {
-				activeRuns ??= /* @__PURE__ */ new Map();
+				activeRuns ?? (activeRuns = /* @__PURE__ */ new Map());
 				promise$1 = Promise.resolve(schema["~run"](dataset, runConfig));
 				activeRuns.set(key, promise$1);
 			}
@@ -46930,7 +47166,7 @@ function getExamples(schema) {
 	function depthFirstCollect(schema$1) {
 		if ("pipe" in schema$1) {
 			for (const item of schema$1.pipe) if (item.kind === "schema" && "pipe" in item) depthFirstCollect(item);
-			else if (item.kind === "metadata" && item.type === "examples") examples$1.push(...item.examples);
+			else if (item.kind === "metadata" && item.type === "examples") for (const example of item.examples) examples$1.push(example);
 		}
 	}
 	depthFirstCollect(schema);
@@ -47040,7 +47276,7 @@ function getTitle(schema) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function is(schema, input) {
-	return !schema["~run"]({ value: input }, { abortEarly: true }).issues;
+	return !schema["~run"]({ value: input }, ABORT_EARLY_CONFIG).issues;
 }
 
 //#endregion
@@ -47461,21 +47697,23 @@ function _merge(value1, value2) {
 	if (typeof value1 === typeof value2) {
 		if (value1 === value2 || value1 instanceof Date && value2 instanceof Date && +value1 === +value2) return { value: value1 };
 		if (value1 && value2 && value1.constructor === Object && value2.constructor === Object) {
+			const nextValue = { ...value1 };
 			for (const key in value2) if (key in value1) {
 				const dataset = /* @__PURE__ */ _merge(value1[key], value2[key]);
 				if (dataset.issue) return dataset;
-				value1[key] = dataset.value;
-			} else value1[key] = value2[key];
-			return { value: value1 };
+				nextValue[key] = dataset.value;
+			} else nextValue[key] = value2[key];
+			return { value: nextValue };
 		}
 		if (Array.isArray(value1) && Array.isArray(value2)) {
 			if (value1.length === value2.length) {
+				const nextValue = [...value1];
 				for (let index = 0; index < value1.length; index++) {
 					const dataset = /* @__PURE__ */ _merge(value1[index], value2[index]);
 					if (dataset.issue) return dataset;
-					value1[index] = dataset.value;
+					nextValue[index] = dataset.value;
 				}
-				return { value: value1 };
+				return { value: nextValue };
 			}
 		}
 	}
@@ -47505,7 +47743,7 @@ function intersect(options, message$1) {
 				for (const schema of this.options) {
 					const optionDataset = schema["~run"]({ value: input }, config$1);
 					if (optionDataset.issues) {
-						if (dataset.issues) dataset.issues.push(...optionDataset.issues);
+						if (dataset.issues) for (const issue of optionDataset.issues) dataset.issues.push(issue);
 						else dataset.issues = optionDataset.issues;
 						if (config$1.abortEarly) {
 							dataset.typed = false;
@@ -47556,7 +47794,7 @@ function intersectAsync(options, message$1) {
 				const optionDatasets = await Promise.all(this.options.map((schema) => schema["~run"]({ value: input }, config$1)));
 				for (const optionDataset of optionDatasets) {
 					if (optionDataset.issues) {
-						if (dataset.issues) dataset.issues.push(...optionDataset.issues);
+						if (dataset.issues) for (const issue of optionDataset.issues) dataset.issues.push(issue);
 						else dataset.issues = optionDataset.issues;
 						if (config$1.abortEarly) {
 							dataset.typed = false;
@@ -49823,7 +50061,7 @@ function undefinedableAsync(wrapped, default_) {
 /* @__NO_SIDE_EFFECTS__ */
 function _subIssues(datasets) {
 	let issues;
-	if (datasets) for (const dataset of datasets) if (issues) issues.push(...dataset.issues);
+	if (datasets) for (const dataset of datasets) if (issues) for (const issue of dataset.issues) issues.push(issue);
 	else issues = dataset.issues;
 	return issues;
 }
@@ -49971,7 +50209,7 @@ function variant(key, options, message$1) {
 								if (currentKey in input ? discriminatorSchema["~run"]({
 									typed: false,
 									value: input[currentKey]
-								}, { abortEarly: true }).issues : discriminatorSchema.type !== "exact_optional" && discriminatorSchema.type !== "optional" && discriminatorSchema.type !== "nullish") {
+								}, ABORT_EARLY_CONFIG).issues : discriminatorSchema.type !== "exact_optional" && discriminatorSchema.type !== "optional" && discriminatorSchema.type !== "nullish") {
 									keysAreValid = false;
 									if (invalidDiscriminatorKey !== currentKey && (maxDiscriminatorPriority < currentPriority || maxDiscriminatorPriority === currentPriority && currentKey in input && !(invalidDiscriminatorKey in input))) {
 										maxDiscriminatorPriority = currentPriority;
@@ -50044,7 +50282,7 @@ function variantAsync(key, options, message$1) {
 								if (currentKey in input ? (await discriminatorSchema["~run"]({
 									typed: false,
 									value: input[currentKey]
-								}, { abortEarly: true })).issues : discriminatorSchema.type !== "exact_optional" && discriminatorSchema.type !== "optional" && discriminatorSchema.type !== "nullish") {
+								}, ABORT_EARLY_CONFIG)).issues : discriminatorSchema.type !== "exact_optional" && discriminatorSchema.type !== "optional" && discriminatorSchema.type !== "nullish") {
 									keysAreValid = false;
 									if (invalidDiscriminatorKey !== currentKey && (maxDiscriminatorPriority < currentPriority || maxDiscriminatorPriority === currentPriority && currentKey in input && !(invalidDiscriminatorKey in input))) {
 										maxDiscriminatorPriority = currentPriority;
