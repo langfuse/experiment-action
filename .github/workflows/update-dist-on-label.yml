@@ -99,7 +99,12 @@ jobs:
       - name: Push dist update
         if: steps.validate.outputs.has_changes == 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          DIST_UPDATE_PAT: ${{ secrets.DIST_UPDATE_PAT }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
+          if [ -z "$DIST_UPDATE_PAT" ]; then
+            echo "::error::Missing DIST_UPDATE_PAT secret. Use a classic PAT with public_repo scope."
+            exit 1
+          fi
+
+          git push "https://x-access-token:${DIST_UPDATE_PAT}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${HEAD_REF}"
