@@ -43033,7 +43033,7 @@ async function setupExperimentScripts(discovered, options) {
     });
 }
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.0_typescript@6.0.3/node_modules/valibot/dist/index.mjs
+;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.1_typescript@6.0.3/node_modules/valibot/dist/index.mjs
 //#region src/storages/globalConfig/globalConfig.ts
 let store$4;
 const DEFAULT_CONFIG = {
