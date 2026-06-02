@@ -50,8 +50,18 @@ jobs:
       - name: Validate generated changes
         id: validate
         run: |
-          changed_files="$(git status --porcelain --untracked-files=all | sed -E 's/^...//')"
-          non_dist_files="$(printf '%s\n' "$changed_files" | grep -v '^dist/' || true)"
+          changed_files=""
+          non_dist_files=""
+
+          while IFS= read -r -d '' entry; do
+            path="${entry:3}"
+            changed_files+="${path}"$'\n'
+
+            case "$path" in
+              dist/*) ;;
+              *) non_dist_files+="${path}"$'\n' ;;
+            esac
+          done < <(git status --porcelain=v1 -z --untracked-files=all --no-renames)
 
           if [ -n "$non_dist_files" ]; then
             echo "::error::The dist update changed files outside dist/:"
