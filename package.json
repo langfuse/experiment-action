@@ -41,7 +41,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@langfuse/client": "5.4.1",
-    "@types/node": "^25.9.2",
+    "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
     "@valibot/to-json-schema": "1.7.1",
