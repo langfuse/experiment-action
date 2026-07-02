@@ -40,8 +40,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@langfuse/client": "5.6.0",
-    "@types/node": "^26.0.0",
+    "@langfuse/client": "5.7.0",
+    "@types/node": "^26.0.1",
     "@typescript-eslint/eslint-plugin": "^8.62.0",
     "@typescript-eslint/parser": "^8.62.0",
     "@valibot/to-json-schema": "1.7.1",
