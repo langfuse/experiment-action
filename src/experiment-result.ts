@@ -53,8 +53,7 @@ function asEvaluation(raw: unknown): NormalizedEvaluation | null {
   if (metadata) evaluation.metadata = metadata;
 
   const dataType = pickCanonicalField(record, "dataType") as
-    | LangfuseEvaluation["dataType"]
-    | undefined;
+    LangfuseEvaluation["dataType"] | undefined;
   if (dataType) evaluation.dataType = dataType;
 
   const configId = pickCanonicalField<string>(record, "configId");
