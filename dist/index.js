@@ -43179,7 +43179,7 @@ async function setupExperimentScripts(discovered, options) {
     });
 }
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.1_typescript@6.0.3/node_modules/valibot/dist/index.mjs
+;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.2_typescript@6.0.3/node_modules/valibot/dist/index.mjs
 //#region src/storages/globalConfig/globalConfig.ts
 let store$4;
 const DEFAULT_CONFIG = {
@@ -43594,8 +43594,13 @@ let store;
 /* @__NO_SIDE_EFFECTS__ */
 function _getWordCount(locales, input) {
 	if (!store) store = /* @__PURE__ */ new Map();
-	if (!store.get(locales)) store.set(locales, new Intl.Segmenter(locales, { granularity: "word" }));
-	const segments = store.get(locales).segment(input);
+	const key = String(locales);
+	let segmenter$1 = store.get(key);
+	if (!segmenter$1) {
+		segmenter$1 = new Intl.Segmenter(locales, { granularity: "word" });
+		store.set(key, segmenter$1);
+	}
+	const segments = segmenter$1.segment(input);
 	let count = 0;
 	for (const segment of segments) if (segment.isWordLike) count++;
 	return count;
@@ -47121,7 +47126,7 @@ function flatten(issues) {
 		const dotPath = /* @__PURE__ */ getDotPath(issue);
 		if (dotPath) {
 			if (!flatErrors.nested) flatErrors.nested = {};
-			if (flatErrors.nested[dotPath]) flatErrors.nested[dotPath].push(issue.message);
+			if (Object.prototype.hasOwnProperty.call(flatErrors.nested, dotPath)) flatErrors.nested[dotPath].push(issue.message);
 			else flatErrors.nested[dotPath] = [issue.message];
 		} else if (flatErrors.other) flatErrors.other.push(issue.message);
 		else flatErrors.other = [issue.message];
@@ -47844,7 +47849,7 @@ function _merge(value1, value2) {
 		if (value1 === value2 || value1 instanceof Date && value2 instanceof Date && +value1 === +value2) return { value: value1 };
 		if (value1 && value2 && value1.constructor === Object && value2.constructor === Object) {
 			const nextValue = { ...value1 };
-			for (const key in value2) if (key in value1) {
+			for (const key in value2) if (Object.prototype.hasOwnProperty.call(value1, key)) {
 				const dataset = /* @__PURE__ */ _merge(value1[key], value2[key]);
 				if (dataset.issue) return dataset;
 				nextValue[key] = dataset.value;
