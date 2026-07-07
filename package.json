@@ -42,10 +42,10 @@
     "@eslint/js": "^10.0.1",
     "@langfuse/client": "5.9.0",
     "@types/node": "^26.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.62.0",
-    "@typescript-eslint/parser": "^8.62.0",
+    "@typescript-eslint/eslint-plugin": "^8.62.1",
+    "@typescript-eslint/parser": "^8.62.1",
     "@valibot/to-json-schema": "1.7.1",
-    "@vercel/ncc": "^0.44.0",
+    "@vercel/ncc": "^0.44.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "eslint": "^10.6.0",
@@ -55,10 +55,10 @@
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-sonarjs": "^4.1.0",
     "husky": "^9.1.7",
-    "prettier": "^3.9.1",
+    "prettier": "^3.9.4",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vite": "^8.1.0",
+    "vite": "^8.1.1",
     "vitest": "^4.1.9"
   }
 }
