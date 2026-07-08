@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@langfuse/client": "5.9.0",
+    "@langfuse/client": "5.9.1",
     "@types/node": "^26.0.1",
     "@typescript-eslint/eslint-plugin": "^8.62.1",
     "@typescript-eslint/parser": "^8.62.1",
@@ -58,7 +58,7 @@
     "prettier": "^3.9.4",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vite": "^8.1.1",
+    "vite": "^8.1.2",
     "vitest": "^4.1.9"
   }
 }
