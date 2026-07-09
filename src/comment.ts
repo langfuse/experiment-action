@@ -642,6 +642,11 @@ export interface PostPrCommentOptions {
  */
 const MAX_UPSERT_ATTEMPTS = 5;
 
+/** GitHub may serve comment bodies with CRLF; we always write LF. */
+function normalizeLineEndings(s: string): string {
+  return s.replace(/\r\n/g, "\n");
+}
+
 /**
  * The comment all racing jobs converge on: the *oldest* (lowest-id) comment
  * carrying the run marker. Lowest-id is a deterministic tiebreak every job
@@ -739,10 +744,14 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
           // into the canonical comment, so our duplicate is safe to drop.
           try {
             await octokit.rest.issues.deleteComment({ ...repo, comment_id: ourCreatedId });
+            ourCreatedId = null;
           } catch (deleteErr) {
-            core.debug(`Failed to delete duplicate comment: ${errorMessage(deleteErr)}`);
+            // Keep the id on failure (except 404 = already gone) so the
+            // verify below fails and the next attempt retries the delete
+            // instead of declaring convergence over an orphan duplicate.
+            if (errorStatus(deleteErr) === 404) ourCreatedId = null;
+            else core.debug(`Failed to delete duplicate comment: ${errorMessage(deleteErr)}`);
           }
-          ourCreatedId = null;
         }
       } else {
         const created = await octokit.rest.issues.createComment({
@@ -755,11 +764,17 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
 
       await sleep(300 + jitter() * 600);
       const verified = await findCanonicalComment(octokit, repo, pr.number, marker);
+      // Compare full section content, not just the markers: a stale
+      // concurrent write can carry an *older* version of our section (same
+      // markers, outdated body), e.g. when re-running a leg. Sections land
+      // in the body verbatim modulo trailing-whitespace collapsing, so a
+      // substring check on the trimmed markdown is exact.
+      const verifiedBody = normalizeLineEndings(verified?.body ?? "");
       const converged =
         verified !== null &&
         (ourCreatedId === null || ourCreatedId === verified.id) &&
-        sections.every(({ scriptPath, jobKey }) =>
-          verified.body.includes(sectionMarkers(scriptPath, jobKey).start),
+        sections.every(({ markdown }) =>
+          verifiedBody.includes(normalizeLineEndings(markdown).trimEnd()),
         );
       if (converged) {
         core.info(`Upserted run ${runId} comment ${verified.id} on PR #${pr.number}.`);

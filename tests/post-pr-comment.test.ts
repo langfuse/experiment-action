@@ -164,6 +164,48 @@ describe("postPrComment convergence", () => {
     expect(core.warning).not.toHaveBeenCalled();
   });
 
+  it("re-merges when a stale write reverts its section content but keeps the markers", async () => {
+    // The canonical comment already carries an *older* version of our
+    // section (same script + job key) — the re-run scenario.
+    const staleAlpha = sectionMarkdown("/tmp/experiment.py", "e2e (alpha)", "alpha-stale");
+    store.push({ id: 1, body: `${MARKER}\n\n${staleAlpha}\n` });
+    // Our update lands, then a concurrent leg writes a body derived from a
+    // pre-update read: our markers are present, but with the stale content.
+    updateComment.mockImplementationOnce(async ({ comment_id }: { comment_id: number }) => {
+      const comment = store.find((c) => c.id === comment_id);
+      if (!comment) throw new Error("missing");
+      comment.body = `${MARKER}\n\n${staleAlpha}\n`;
+      return { data: comment };
+    });
+
+    await post();
+
+    expect(updateComment).toHaveBeenCalledTimes(2);
+    expect(store[0].body).toContain("body alpha");
+    expect(store[0].body).not.toContain("body alpha-stale");
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed duplicate deletion instead of leaving an orphan comment", async () => {
+    createComment.mockImplementationOnce(async ({ body }: { body: string }) => {
+      store.push({ id: nextId++, body: betaBody });
+      const ours = { id: nextId++, body };
+      store.push(ours);
+      return { data: ours };
+    });
+    deleteComment.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("boom"), { status: 500 });
+    });
+
+    await post();
+
+    expect(deleteComment).toHaveBeenCalledTimes(2);
+    expect(store).toHaveLength(1);
+    expect(store[0].id).toBe(1);
+    expect(store[0].body).toContain("body alpha");
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
   it("gives up with a warning after bounded attempts when writes keep getting clobbered", async () => {
     store.push({ id: 1, body: betaBody });
     updateComment.mockImplementation(async ({ comment_id }: { comment_id: number }) => {
