@@ -43,6 +43,17 @@ inputs:
     description: "Post the experiment report as a PR comment."
     required: false
     default: "true"
+  comment_key:
+    description: >-
+      Optional discriminator for the PR comment section this invocation
+      writes. Set it to a value that is unique per matrix leg (e.g.
+      `${{ matrix.prompt }}`) so several legs running the SAME
+      `experiment_path` get their own section instead of overwriting one
+      another. When omitted, the action falls back to the numeric job id
+      (unique per matrix leg) when it can resolve one, otherwise to the
+      script path alone — matching the pre-`comment_key` behavior.
+    required: false
+    default: ""
 
   python_sdk_version:
     description: "Version of the Langfuse Python SDK to install via pip (for `.py` experiments). Use a specific version string or `latest`."

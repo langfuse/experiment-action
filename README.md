@@ -30,6 +30,7 @@ is detected. Learn more in the Langfuse docs on
   - [Can I pin a specific Langfuse SDK version?](#can-i-pin-a-specific-langfuse-sdk-version)
   - [Why does the action need a `github_token`?](#why-does-the-action-need-a-github_token)
   - [Does PR commenting work on forked-PR runs?](#does-pr-commenting-work-on-forked-pr-runs)
+  - [Commenting from a parallel matrix](#commenting-from-a-parallel-matrix)
   - [Why can't I see my experiment in Langfuse?](#why-cant-i-see-my-experiment-in-langfuse)
 - [Contributing](#contributing)
 - [License](#license)
@@ -85,22 +86,23 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 
 ### Inputs
 
-| Input                          | Required | Default                      | Description                                                                                                                                                     |
-| ------------------------------ | -------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `langfuse_public_key`          | yes      |                              | Langfuse public API key.                                                                                                                                        |
-| `langfuse_secret_key`          | yes      |                              | Langfuse secret API key.                                                                                                                                        |
-| `langfuse_base_url`            | no       | `https://cloud.langfuse.com` | Langfuse base URL.                                                                                                                                              |
-| `experiment_path`              | yes      |                              | File, directory, or glob pattern pointing at experiment scripts.                                                                                                |
-| `dataset_name`                 | no       |                              | Dataset to run against. If omitted, the user script is expected to select its own dataset.                                                                      |
-| `dataset_version`              | no       |                              | Pin the experiment to a specific dataset version.                                                                                                               |
-| `experiment_metadata`          | no       |                              | Additional metadata as a multiline `key=value` string. Shown under the Metadata column in the Langfuse UI.                                                      |
-| `should_fail_on_regression`    | no       | `true`                       | Fail CI when an experiment raises `RegressionError`.                                                                                                            |
-| `should_fail_on_script_error`  | no       | `true`                       | Fail CI when an experiment script crashes or raises a non-regression error.                                                                                     |
-| `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                |
-| `python_sdk_version`           | no       | `4.6.0`                      | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                |
-| `js_sdk_version`               | no       | `5.3.0`                      | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                                           |
-| `should_skip_sdk_installation` | no       | `false`                      | Skip automatic SDK installation and use the ambient Python/Node environment.                                                                                    |
-| `github_token`                 | no       |                              | Token used to post the PR comment. Pass `${{ github.token }}` and grant `pull-requests: write` (and optionally `actions: read` for job-level "View run" links). |
+| Input                          | Required | Default                      | Description                                                                                                                                                                                                                                                                 |
+| ------------------------------ | -------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `langfuse_public_key`          | yes      |                              | Langfuse public API key.                                                                                                                                                                                                                                                    |
+| `langfuse_secret_key`          | yes      |                              | Langfuse secret API key.                                                                                                                                                                                                                                                    |
+| `langfuse_base_url`            | no       | `https://cloud.langfuse.com` | Langfuse base URL.                                                                                                                                                                                                                                                          |
+| `experiment_path`              | yes      |                              | File, directory, or glob pattern pointing at experiment scripts.                                                                                                                                                                                                            |
+| `dataset_name`                 | no       |                              | Dataset to run against. If omitted, the user script is expected to select its own dataset.                                                                                                                                                                                  |
+| `dataset_version`              | no       |                              | Pin the experiment to a specific dataset version.                                                                                                                                                                                                                           |
+| `experiment_metadata`          | no       |                              | Additional metadata as a multiline `key=value` string. Shown under the Metadata column in the Langfuse UI.                                                                                                                                                                  |
+| `should_fail_on_regression`    | no       | `true`                       | Fail CI when an experiment raises `RegressionError`.                                                                                                                                                                                                                        |
+| `should_fail_on_script_error`  | no       | `true`                       | Fail CI when an experiment script crashes or raises a non-regression error.                                                                                                                                                                                                 |
+| `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                                                                                                                            |
+| `comment_key`                  | no       |                              | Discriminator for this invocation's comment section. Set it to a value that is unique per matrix leg (e.g. `${{ matrix.prompt }}`) so legs sharing an `experiment_path` get separate sections. See [Commenting from a parallel matrix](#commenting-from-a-parallel-matrix). |
+| `python_sdk_version`           | no       | `4.6.0`                      | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                                                                                                                            |
+| `js_sdk_version`               | no       | `5.3.0`                      | JS SDK version (`@langfuse/client`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                                                                                                                                                       |
+| `should_skip_sdk_installation` | no       | `false`                      | Skip automatic SDK installation and use the ambient Python/Node environment.                                                                                                                                                                                                |
+| `github_token`                 | no       |                              | Token used to post the PR comment. Pass `${{ github.token }}` and grant `pull-requests: write` (and optionally `actions: read` for job-level "View run" links).                                                                                                             |
 
 ### Outputs
 
@@ -338,6 +340,49 @@ directly. Two common mitigations:
   posts the comment with elevated permissions.
 
 [pr-target-security]: https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+
+### Commenting from a parallel matrix
+
+The action combines every invocation from one workflow run into a **single**
+PR comment (keyed on `GITHUB_RUN_ID`), splicing one section per experiment
+into it. Each section is keyed by experiment script path, so two _different_
+scripts running in the same run get their own section automatically.
+
+A matrix that runs the **same** `experiment_path` on every leg (varying only
+parameters/env) needs a hint to tell the legs apart — otherwise they all map
+to the same section. Set `comment_key` to something unique per leg:
+
+```yaml
+strategy:
+  fail-fast: false
+  matrix:
+    prompt: [summarize, classify, extract]
+steps:
+  - uses: langfuse/experiment-action@<sha>
+    env:
+      PROMPT_NAME: ${{ matrix.prompt }}
+    with:
+      experiment_path: experiments/prompt-eval.ts # same script for every leg
+      comment_key: ${{ matrix.prompt }} # → one section per prompt
+      github_token: ${{ github.token }}
+```
+
+Notes:
+
+- **`comment_key` is optional.** When omitted, the action falls back to the
+  numeric **job id** (unique per matrix leg) whenever it can resolve one —
+  which requires `actions: read` on the token. Grant that permission (see the
+  [Quickstart](#quickstart)) and same-script legs are separated automatically.
+  Set `comment_key` explicitly when you can't grant `actions: read`, or when
+  you want a readable label in the comment's overview table.
+- **Concurrency is best-effort.** Parallel legs all update one comment, and the
+  GitHub issue-comments API has no compare-and-swap, so the action can't make
+  the update truly atomic. It retries the read-modify-write on conflict (with
+  jittered backoff) and reconciles duplicate comments, which closes the race in
+  practice. Under extreme contention a section can still be dropped; re-running
+  the job re-splices it. If that's a concern for very large matrices, give each
+  leg a distinct `GITHUB_RUN_ID`-independent workflow, or open an issue — a
+  one-comment-per-`comment_key` mode is on the table.
 
 ### Why can't I see my experiment in Langfuse?
 

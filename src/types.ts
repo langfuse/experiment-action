@@ -16,6 +16,12 @@ export interface ResolvedInputs {
   shouldFailOnRegression: boolean;
   shouldFailOnScriptError: boolean;
   shouldCommentOnPr: boolean;
+  /**
+   * Optional discriminator that gives same-script matrix legs distinct PR
+   * comment sections. Unset → sections are keyed by script path (with an
+   * automatic job-id fallback), preserving pre-`comment_key` behavior.
+   */
+  commentKey?: string;
 
   pythonSdkVersion: string;
   jsSdkVersion: string;

@@ -70,6 +70,18 @@ describe("resolveInputs", () => {
     expect(inputs.shouldFailOnScriptError).toBe(true);
   });
 
+  it("leaves comment_key undefined when omitted and trims it when set", () => {
+    Object.assign(mockInputs, {
+      experiment_path: "experiments/",
+      langfuse_public_key: "pk",
+      langfuse_secret_key: "sk",
+    });
+    expect(resolveInputs().commentKey).toBeUndefined();
+
+    mockInputs.comment_key = "  ocr-v2  ";
+    expect(resolveInputs().commentKey).toBe("ocr-v2");
+  });
+
   it("parses both failure-mode booleans independently", () => {
     Object.assign(mockInputs, {
       experiment_path: "experiments/",

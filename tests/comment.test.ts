@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFreshCommentBody,
+  foldForeignSections,
+  jobKeyFromUrl,
   refreshCommentTitle,
   renderCommentTitle,
   renderScriptSection,
@@ -343,6 +345,91 @@ describe("buildFreshCommentBody snapshot", () => {
   });
 });
 
+describe("comment_key / job-key section discriminators", () => {
+  it("keeps the marker byte-identical to the pre-comment_key format when no discriminator is set", () => {
+    const section = renderScriptSection({ result: pyPassingResult });
+    expect(section).toMatch(
+      /^<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment\.py( |-->)/,
+    );
+    expect(section).not.toContain(" key=");
+    expect(section).not.toContain(" job=");
+  });
+
+  it("stamps a `key=` attribute on both markers when a comment_key is supplied", () => {
+    const section = renderScriptSection({ result: pyPassingResult, commentKey: "prompt-A" });
+    expect(section).toContain(":start script=%2Ftmp%2Fexperiment.py key=prompt-A");
+    expect(section).toContain(":end script=%2Ftmp%2Fexperiment.py key=prompt-A -->");
+  });
+
+  it("stamps a `job=` attribute when only a job key is available", () => {
+    const section = renderScriptSection({ result: pyPassingResult, jobKey: "987654" });
+    expect(section).toContain(":start script=%2Ftmp%2Fexperiment.py job=987654");
+    expect(section).toContain(":end script=%2Ftmp%2Fexperiment.py job=987654 -->");
+  });
+
+  it("gives two same-script legs distinct sections keyed by comment_key", () => {
+    const legA = renderScriptSection({ result: pyPassingResult, commentKey: "A" });
+    const legB = renderScriptSection({ result: pyPassingResult, commentKey: "B" });
+
+    const body = buildFreshCommentBody("run-1", { shortSha: "abc1234" }, [legA, legB]);
+
+    // Both legs survive as separate sections...
+    expect(body.match(/:start script=%2Ftmp%2Fexperiment\.py key=A/g)).toHaveLength(1);
+    expect(body.match(/:start script=%2Ftmp%2Fexperiment\.py key=B/g)).toHaveLength(1);
+    // ...and the overview disambiguates the duplicate display name by comment_key.
+    expect(body).toContain("Uppercase task (`A`)");
+    expect(body).toContain("Uppercase task (`B`)");
+  });
+
+  it("replaces only the matching leg's section on re-run, leaving the sibling intact", () => {
+    const legA = renderScriptSection({ result: pyPassingResult, commentKey: "A" });
+    const legB = renderScriptSection({ result: pyPassingResult, commentKey: "B" });
+    let body = buildFreshCommentBody("run-1", {}, [legA]);
+    body = upsertSection(body, { scriptPath: pyPassingResult.scriptPath, commentKey: "B" }, legB);
+
+    const legBv2 = renderScriptSection({ result: regressionWithResult, commentKey: "B" }).replace(
+      /script=%2Ftmp%2Freg\.py/g,
+      "script=%2Ftmp%2Fexperiment.py",
+    );
+    body = upsertSection(body, { scriptPath: pyPassingResult.scriptPath, commentKey: "B" }, legBv2);
+
+    // Still exactly one section per key.
+    expect(body.match(/:start script=%2Ftmp%2Fexperiment\.py key=A/g)).toHaveLength(1);
+    expect(body.match(/:start script=%2Ftmp%2Fexperiment\.py key=B/g)).toHaveLength(1);
+  });
+});
+
+describe("jobKeyFromUrl", () => {
+  it("extracts the numeric job id from a job URL", () => {
+    expect(jobKeyFromUrl("https://github.com/o/r/actions/runs/7/job/42")).toBe("42");
+  });
+
+  it("returns undefined for a workflow-run URL (no /job/ segment) or missing input", () => {
+    expect(jobKeyFromUrl("https://github.com/o/r/actions/runs/7")).toBeUndefined();
+    expect(jobKeyFromUrl(undefined)).toBeUndefined();
+  });
+});
+
+describe("foldForeignSections", () => {
+  it("copies sections present in the source but missing from the target", () => {
+    const a = renderScriptSection({ result: pyPassingResult, commentKey: "A" });
+    const b = renderScriptSection({ result: pyPassingResult, commentKey: "B" });
+    const target = buildFreshCommentBody("run-1", {}, [a]);
+    const duplicate = buildFreshCommentBody("run-1", {}, [b]);
+
+    const merged = foldForeignSections(target, duplicate);
+    expect(merged).toContain("key=A");
+    expect(merged).toContain("key=B");
+  });
+
+  it("does not duplicate a section already present in the target", () => {
+    const a = renderScriptSection({ result: pyPassingResult, commentKey: "A" });
+    const target = buildFreshCommentBody("run-1", {}, [a]);
+    const merged = foldForeignSections(target, target);
+    expect(merged.match(/:start script=%2Ftmp%2Fexperiment\.py key=A/g)).toHaveLength(1);
+  });
+});
+
 describe("upsertSection", () => {
   const mkSection = (scriptPath: string, label: string) =>
     [
@@ -353,7 +440,11 @@ describe("upsertSection", () => {
 
   it("appends when no prior section exists for that script path", () => {
     const existing = `<!-- langfuse-experiment-action run_id=1 -->\n\n${mkSection("/tmp/a.py", "v1")}\n`;
-    const updated = upsertSection(existing, "/tmp/b.py", mkSection("/tmp/b.py", "v1"));
+    const updated = upsertSection(
+      existing,
+      { scriptPath: "/tmp/b.py" },
+      mkSection("/tmp/b.py", "v1"),
+    );
     expect(updated).toContain(encodeURIComponent("/tmp/a.py"));
     expect(updated).toContain(encodeURIComponent("/tmp/b.py"));
     expect(updated.indexOf(encodeURIComponent("/tmp/a.py"))).toBeLessThan(
@@ -369,7 +460,11 @@ describe("upsertSection", () => {
       "",
       mkSection("/tmp/b.py", "keep"),
     ].join("\n");
-    const updated = upsertSection(existing, "/tmp/a.py", mkSection("/tmp/a.py", "new"));
+    const updated = upsertSection(
+      existing,
+      { scriptPath: "/tmp/a.py" },
+      mkSection("/tmp/a.py", "new"),
+    );
     expect(updated).toContain("section body for new");
     expect(updated).not.toContain("section body for old");
     expect(updated).toContain("section body for keep");
