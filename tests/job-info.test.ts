@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resolveJobInfo } from "@/github/job-url";
+import { resolveJobInfo } from "@/github/job-info";
 
 vi.mock("@actions/core", () => ({
   warning: vi.fn(),
@@ -78,6 +78,57 @@ describe("resolveJobInfo", () => {
     });
 
     expect(info?.name).toBe("current");
+  });
+
+  it("uses a sole runner-name match even when its status isn't in_progress yet", async () => {
+    // Listing lag right after job start can report us as queued — a single
+    // match is still unambiguous.
+    paginate.mockResolvedValue([job("other", "r1"), job("ours", "our-runner", "queued")]);
+
+    const info = await resolveJobInfo({
+      token: "tok",
+      runId: "9",
+      runAttempt: "1",
+      runnerName: "our-runner",
+    });
+
+    expect(info?.name).toBe("ours");
+  });
+
+  it("returns null instead of guessing when several same-runner jobs are in progress", async () => {
+    // Two self-hosted runners registered under the same name, both busy: a
+    // wrong guess could hand two matrix legs the same section key.
+    paginate.mockResolvedValue([
+      job("leg-a", "shared-runner", "in_progress"),
+      job("leg-b", "shared-runner", "in_progress"),
+    ]);
+
+    const info = await resolveJobInfo({
+      token: "tok",
+      runId: "9",
+      runAttempt: "1",
+      runnerName: "shared-runner",
+    });
+
+    expect(info).toBeNull();
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("Could not disambiguate"));
+  });
+
+  it("returns null instead of a completed job when no same-runner candidate is running", async () => {
+    paginate.mockResolvedValue([
+      job("old-a", "shared-runner", "completed"),
+      job("old-b", "shared-runner", "completed"),
+    ]);
+
+    const info = await resolveJobInfo({
+      token: "tok",
+      runId: "9",
+      runAttempt: "1",
+      runnerName: "shared-runner",
+    });
+
+    expect(info).toBeNull();
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("Could not disambiguate"));
   });
 
   it("falls back to a single in-progress job when the runner name is unavailable", async () => {

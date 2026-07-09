@@ -3,13 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildFreshCommentBody,
   refreshCommentTitle,
+  refreshOverview,
   renderCommentTitle,
   renderScriptSection,
+  runMarker,
   upsertSection,
 } from "@/comment";
 import { normalizeExperimentResult, resolveLangfuseExperimentUrl } from "@/experiment-result";
 import type { ScriptResult } from "@/types";
 
+import { makeLegacySection, makeSection } from "./helpers/comment-sections";
 import { scriptResultFromRaw } from "./helpers/script-results";
 
 /**
@@ -208,7 +211,7 @@ describe("renderScriptSection snapshots", () => {
     const section = renderScriptSection({
       result: { ...unrelatedError, normalizedResult: null },
     });
-    expect(section).toMatch(/^<!-- langfuse-experiment-action:start script=/);
+    expect(section).toMatch(/^<!-- langfuse-experiment-action:start\/2 script=/);
     // No SDK name → summary uses the script filename as the display name.
     expect(section).toContain("<details open><summary>❌ broken.py</summary>");
   });
@@ -225,6 +228,29 @@ describe("renderScriptSection snapshots", () => {
       jobLabel: "e2e (alpha)",
     });
     expect(section).toContain("<details><summary>✅ Uppercase task — e2e (alpha)</summary>");
+  });
+
+  it("escapes HTML in the job label so a crafted job name can't break out of the summary", () => {
+    const hostile = "x</summary><h1>All experiments passed</h1>";
+    const section = renderScriptSection({
+      result: pyPassingResult,
+      jobKey: hostile,
+      jobLabel: hostile,
+    });
+    expect(section).toContain("— x&lt;/summary&gt;&lt;h1&gt;All experiments passed&lt;/h1&gt;");
+    expect(section).not.toContain("<h1>All experiments passed</h1>");
+  });
+
+  it("neutralizes marker forgery attempts in the job label", () => {
+    const forged = "x <!-- langfuse-experiment-action:start/2 script=fake job=fake -->";
+    const section = renderScriptSection({
+      result: pyPassingResult,
+      jobKey: "e2e (alpha)",
+      jobLabel: forged,
+    });
+    // Only the section's own start/end markers survive; the label's copy is
+    // escaped and can't be parsed as a marker.
+    expect(section.match(/<!-- langfuse-experiment-action/g)).toHaveLength(2);
   });
 
   it("links the source in the summary when a blob URL is provided", () => {
@@ -375,20 +401,36 @@ describe("buildFreshCommentBody snapshot", () => {
     expect(body).toContain("Uppercase task (`tmp/experiment.py`)");
     expect(body).toContain("Uppercase task (`other/experiment.py`)");
   });
+
+  it("keeps per-row job disambiguators when only some colliding rows share a job key", () => {
+    // Two matrix legs of one script plus a different script with the same
+    // experiment name whose job key matches leg alpha. Only the ambiguous
+    // rows should fall back to script labels — beta keeps its job key.
+    const legAlpha = renderScriptSection({ result: pyPassingResult, jobKey: "e2e (alpha)" });
+    const legBeta = renderScriptSection({ result: pyPassingResult, jobKey: "e2e (beta)" });
+    const other = renderScriptSection({
+      result: { ...pyPassingResult, scriptPath: "/other/experiment.py" },
+      jobKey: "e2e (alpha)",
+    });
+    const body = buildFreshCommentBody("12345", SNAPSHOT_TITLE, [legAlpha, legBeta, other]);
+    expect(body).toContain("Uppercase task (`e2e (beta)`)");
+    expect(body).toContain("Uppercase task (`tmp/experiment.py`)");
+    expect(body).toContain("Uppercase task (`other/experiment.py`)");
+  });
 });
 
 describe("upsertSection", () => {
   const JOB = "e2e (alpha)";
   const mkSection = (scriptPath: string, label: string, jobKey = JOB) =>
-    [
-      `<!-- langfuse-experiment-action:start script=${encodeURIComponent(scriptPath)} job=${encodeURIComponent(jobKey)} -->`,
-      `section body for ${label}`,
-      `<!-- langfuse-experiment-action:end script=${encodeURIComponent(scriptPath)} job=${encodeURIComponent(jobKey)} -->`,
-    ].join("\n");
+    makeSection({ scriptPath, jobKey }, `section body for ${label}`);
 
   it("appends when no prior section exists for that script path", () => {
     const existing = `<!-- langfuse-experiment-action run_id=1 -->\n\n${mkSection("/tmp/a.py", "v1")}\n`;
-    const updated = upsertSection(existing, "/tmp/b.py", JOB, mkSection("/tmp/b.py", "v1"));
+    const updated = upsertSection(
+      existing,
+      { scriptPath: "/tmp/b.py", jobKey: JOB },
+      mkSection("/tmp/b.py", "v1"),
+    );
     expect(updated).toContain(encodeURIComponent("/tmp/a.py"));
     expect(updated).toContain(encodeURIComponent("/tmp/b.py"));
     expect(updated.indexOf(encodeURIComponent("/tmp/a.py"))).toBeLessThan(
@@ -404,15 +446,19 @@ describe("upsertSection", () => {
       "",
       mkSection("/tmp/b.py", "keep"),
     ].join("\n");
-    const updated = upsertSection(existing, "/tmp/a.py", JOB, mkSection("/tmp/a.py", "new"));
+    const updated = upsertSection(
+      existing,
+      { scriptPath: "/tmp/a.py", jobKey: JOB },
+      mkSection("/tmp/a.py", "new"),
+    );
     expect(updated).toContain("section body for new");
     expect(updated).not.toContain("section body for old");
     expect(updated).toContain("section body for keep");
     // Still exactly one start marker per script key.
     const aEncoded = encodeURIComponent("/tmp/a.py");
     const bEncoded = encodeURIComponent("/tmp/b.py");
-    expect(updated.match(new RegExp(`:start script=${aEncoded}`, "g"))).toHaveLength(1);
-    expect(updated.match(new RegExp(`:start script=${bEncoded}`, "g"))).toHaveLength(1);
+    expect(updated.match(new RegExp(`:start/2 script=${aEncoded}`, "g"))).toHaveLength(1);
+    expect(updated.match(new RegExp(`:start/2 script=${bEncoded}`, "g"))).toHaveLength(1);
   });
 
   it("keeps distinct sections for matrix legs running the same script (issue #14907)", () => {
@@ -423,8 +469,7 @@ describe("upsertSection", () => {
     ].join("\n");
     const appended = upsertSection(
       existing,
-      "/tmp/a.py",
-      "e2e (beta)",
+      { scriptPath: "/tmp/a.py", jobKey: "e2e (beta)" },
       mkSection("/tmp/a.py", "leg beta", "e2e (beta)"),
     );
     expect(appended).toContain("section body for leg alpha");
@@ -433,8 +478,7 @@ describe("upsertSection", () => {
     // Re-upserting one leg replaces only that leg's section.
     const updated = upsertSection(
       appended,
-      "/tmp/a.py",
-      "e2e (beta)",
+      { scriptPath: "/tmp/a.py", jobKey: "e2e (beta)" },
       mkSection("/tmp/a.py", "leg beta v2", "e2e (beta)"),
     );
     expect(updated).toContain("section body for leg alpha");
@@ -452,8 +496,7 @@ describe("upsertSection", () => {
     ].join("\n");
     const updated = upsertSection(
       existing,
-      "/tmp/a.py",
-      "job",
+      { scriptPath: "/tmp/a.py", jobKey: "job" },
       mkSection("/tmp/a.py", "short script new", "job"),
     );
     // `/tmp/a.py` + `job` matches neither `/tmp/ab.py` + `job` nor
@@ -461,5 +504,33 @@ describe("upsertSection", () => {
     expect(updated).toContain("section body for long script");
     expect(updated).toContain("section body for short script");
     expect(updated).toContain("section body for short script new");
+  });
+});
+
+describe("legacy (pre-job-key) sections", () => {
+  // What a released pre-job-key action version actually leaves in a comment
+  // — relevant when one run mixes action versions across jobs.
+  const legacySection = makeLegacySection(
+    "/tmp/legacy.py",
+    ["<details><summary>✅ Legacy experiment</summary>", "", "_body_", "", "</details>"].join("\n"),
+  );
+
+  it("coexists with a new-format section for the same script instead of being spliced", () => {
+    const existing = `${runMarker("1")}\n\n${legacySection}\n`;
+    const updated = upsertSection(
+      existing,
+      { scriptPath: "/tmp/legacy.py", jobKey: "e2e (alpha)" },
+      makeSection({ scriptPath: "/tmp/legacy.py", jobKey: "e2e (alpha)" }, "new leg"),
+    );
+    expect(updated).toContain("✅ Legacy experiment");
+    expect(updated).toContain("new leg");
+  });
+
+  it("still parses into the overview next to new-format sections", () => {
+    const newSection = renderScriptSection({ result: pyPassingResult, jobKey: "e2e (alpha)" });
+    const body = refreshOverview(`${runMarker("1")}\n\n${legacySection}\n\n${newSection}\n`);
+    expect(body).toContain("| Experiment | Status | Actions |");
+    expect(body).toContain("Legacy experiment");
+    expect(body).toContain("Uppercase task");
   });
 });

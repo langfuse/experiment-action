@@ -4,7 +4,7 @@ import { publishExperimentComment } from "./comment";
 import { discoverScripts } from "./discover";
 import { setupExperimentScripts } from "./executors";
 import { normalizeExperimentResult, resolveLangfuseExperimentUrl } from "./experiment-result";
-import { resolveJobInfo } from "./github/job-url";
+import { resolveJobInfo } from "./github/job-info";
 import { resolveInputs } from "./inputs";
 import { resolveProjectId } from "./langfuse/project";
 import { resolveDefaultMetadata } from "./metadata";

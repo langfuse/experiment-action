@@ -1,7 +1,11 @@
 import * as core from "@actions/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { postPrComment } from "@/comment";
+import { postPrComment, publishExperimentComment } from "@/comment";
+import type { ResolvedInputs } from "@/types";
+
+import { makeSection } from "./helpers/comment-sections";
+import { scriptResultFromRaw } from "./helpers/script-results";
 
 /**
  * Concurrency tests for the convergent comment upsert. The fake octokit is
@@ -74,15 +78,8 @@ beforeEach(() => {
 const RUN_ID = "42";
 const MARKER = `<!-- langfuse-experiment-action run_id=${RUN_ID} -->`;
 
-function sectionMarkdown(scriptPath: string, jobKey: string, label: string): string {
-  const script = encodeURIComponent(scriptPath);
-  const job = encodeURIComponent(jobKey);
-  return [
-    `<!-- langfuse-experiment-action:start script=${script} job=${job} -->`,
-    `body ${label}`,
-    `<!-- langfuse-experiment-action:end script=${script} job=${job} -->`,
-  ].join("\n");
-}
+const sectionMarkdown = (scriptPath: string, jobKey: string, label: string): string =>
+  makeSection({ scriptPath, jobKey }, `body ${label}`);
 
 const alphaSection = {
   scriptPath: "/tmp/experiment.py",
@@ -97,7 +94,6 @@ async function post(): Promise<void> {
     token: "tok",
     runId: RUN_ID,
     sleep: async () => {},
-    jitter: () => 0,
   });
 }
 
@@ -186,6 +182,62 @@ describe("postPrComment convergence", () => {
     expect(core.warning).not.toHaveBeenCalled();
   });
 
+  it("defers duplicate deletion until its sections are verified in the canonical comment", async () => {
+    // Lost creation race AND the first merge into the canonical comment is
+    // clobbered by a concurrent writer. Deleting the duplicate at that point
+    // would destroy the only surviving copy of our section if this job died.
+    createComment.mockImplementationOnce(async ({ body }: { body: string }) => {
+      store.push({ id: nextId++, body: betaBody });
+      const ours = { id: nextId++, body };
+      store.push(ours);
+      return { data: ours };
+    });
+    updateComment.mockImplementationOnce(async ({ comment_id }: { comment_id: number }) => {
+      const comment = store.find((c) => c.id === comment_id);
+      if (!comment) throw new Error("missing");
+      comment.body = betaBody;
+      return { data: comment };
+    });
+
+    await post();
+
+    // Exactly one delete, and only after the second (successful) merge.
+    expect(deleteComment).toHaveBeenCalledTimes(1);
+    expect(deleteComment.mock.invocationCallOrder[0]).toBeGreaterThan(
+      updateComment.mock.invocationCallOrder[1],
+    );
+    expect(store).toHaveLength(1);
+    expect(store[0].body).toContain("body alpha");
+    expect(store[0].body).toContain("body beta");
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
+  it("does not create a second comment when the listing lags behind its own create", async () => {
+    // Both the initial list and the verify read miss our fresh comment.
+    paginate.mockImplementationOnce(async () => []).mockImplementationOnce(async () => []);
+
+    await post();
+
+    expect(createComment).toHaveBeenCalledTimes(1);
+    expect(store).toHaveLength(1);
+    expect(store[0].body).toContain("body alpha");
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
+  it("rides out a transient API error and retries on the next attempt", async () => {
+    store.push({ id: 1, body: betaBody });
+    updateComment.mockImplementationOnce(async () => {
+      throw Object.assign(new Error("Bad gateway"), { status: 502 });
+    });
+
+    await post();
+
+    expect(updateComment).toHaveBeenCalledTimes(2);
+    expect(store[0].body).toContain("body alpha");
+    expect(store[0].body).toContain("body beta");
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
   it("retries a failed duplicate deletion instead of leaving an orphan comment", async () => {
     createComment.mockImplementationOnce(async ({ body }: { body: string }) => {
       store.push({ id: nextId++, body: betaBody });
@@ -229,5 +281,62 @@ describe("postPrComment convergence", () => {
     await post();
 
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("pull-requests: write"));
+  });
+});
+
+describe("publishExperimentComment job labels", () => {
+  const results = [
+    scriptResultFromRaw({
+      scriptPath: "/tmp/experiment.py",
+      scriptName: "experiment.py",
+      runtime: "python",
+      result: { name: "Uppercase task", run_evaluations: [], item_results: [] },
+      error: null,
+      durationMs: 100,
+    }),
+  ];
+  const inputs = { githubToken: "tok" } as ResolvedInputs;
+  const baseEnv = { GITHUB_RUN_ID: RUN_ID, GITHUB_JOB: "e2e" };
+
+  // `publishExperimentComment` uses the real (jittered) sleep — run it under
+  // fake timers so these glue tests don't wait out the verify delay.
+  async function publish(jobName: string | null): Promise<void> {
+    vi.useFakeTimers();
+    try {
+      const promise = publishExperimentComment({
+        inputs,
+        results,
+        jobInfo: jobName ? { htmlUrl: null, name: jobName } : null,
+        env: baseEnv as NodeJS.ProcessEnv,
+      });
+      await vi.runAllTimersAsync();
+      await promise;
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("labels sections with the job name for matrix legs", async () => {
+    await publish("e2e (alpha)");
+
+    expect(store[0].body).toContain("✅ Uppercase task — e2e (alpha)</summary>");
+    expect(store[0].body).toContain("job=e2e%20(alpha)");
+  });
+
+  it("keys on the display name but keeps today's rendering for renamed non-matrix jobs", async () => {
+    await publish("Run nightly evals");
+
+    // Renamed (non-matrix) job: section identity uses the display name, but
+    // the summary stays unchanged so upgrades don't alter existing comments.
+    expect(store[0].body).toContain("✅ Uppercase task</summary>");
+    expect(store[0].body).not.toContain("— Run nightly evals");
+    expect(store[0].body).toContain("job=Run%20nightly%20evals");
+  });
+
+  it("falls back to the YAML job key without job info", async () => {
+    await publish(null);
+
+    expect(store[0].body).toContain("✅ Uppercase task</summary>");
+    expect(store[0].body).toContain("job=e2e ");
   });
 });

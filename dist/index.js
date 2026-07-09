@@ -33769,6 +33769,701 @@ function getIDToken(aud) {
 //# sourceMappingURL=core.js.map
 ;// CONCATENATED MODULE: external "node:path"
 const external_node_path_namespaceObject = require("node:path");
+;// CONCATENATED MODULE: ./src/langfuse/project.ts
+
+/**
+ * Resolve the Langfuse project id from the action's API credentials. A
+ * public/secret key pair is scoped to exactly one project, so the first
+ * entry of `/api/public/projects` is it.
+ *
+ * Returns `null` on any failure — the caller falls back to not rendering
+ * the "View on Langfuse" link rather than blowing up.
+ */
+async function resolveProjectId(params) {
+    const { baseUrl, publicKey, secretKey } = params;
+    if (!baseUrl || !publicKey || !secretKey)
+        return null;
+    try {
+        const auth = Buffer.from(`${publicKey}:${secretKey}`).toString("base64");
+        const res = await fetch(`${stripTrailingSlash(baseUrl)}/api/public/projects`, {
+            headers: { Authorization: `Basic ${auth}` },
+        });
+        if (!res.ok) {
+            core_debug(`resolveProjectId: /api/public/projects returned ${res.status}`);
+            return null;
+        }
+        const body = (await res.json());
+        const id = body.data?.[0]?.id ?? null;
+        core_debug(`resolveProjectId: ${id ?? "<unresolved>"}`);
+        return id;
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        core_debug(`resolveProjectId failed: ${msg}`);
+        return null;
+    }
+}
+/**
+ * Build the Langfuse UI link to an experiment's results page.
+ *   <base>/project/<project_id>/experiments/results?baseline=<experiment_id>
+ */
+function buildExperimentResultsUrl(params) {
+    const { baseUrl, projectId, experimentId } = params;
+    const base = stripTrailingSlash(baseUrl);
+    return `${base}/project/${encodeURIComponent(projectId)}/experiments/results?baseline=${encodeURIComponent(experimentId)}`;
+}
+function buildDatasetItemUrl(params) {
+    const { baseUrl, projectId, datasetId, itemId } = params;
+    const base = stripTrailingSlash(baseUrl);
+    return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/items/${encodeURIComponent(itemId)}`;
+}
+function stripTrailingSlash(s) {
+    return s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+;// CONCATENATED MODULE: ./src/experiment-result.ts
+
+function asRecord(value) {
+    if (!value || typeof value !== "object")
+        return null;
+    return value;
+}
+function toSnakeCase(key) {
+    return key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
+}
+function pickField(obj, ...keys) {
+    const record = asRecord(obj);
+    if (!record)
+        return undefined;
+    for (const key of keys) {
+        if (key in record && record[key] !== undefined)
+            return record[key];
+    }
+    return undefined;
+}
+function pickCanonicalField(obj, canonicalKey, ...extraAliases) {
+    return pickField(obj, canonicalKey, toSnakeCase(canonicalKey), ...extraAliases);
+}
+function asEvaluation(raw) {
+    const record = asRecord(raw);
+    if (!record)
+        return null;
+    const name = typeof record.name === "string" ? record.name : null;
+    if (!name)
+        return null;
+    const evaluation = {
+        name,
+        value: (record.value ?? null),
+    };
+    const comment = typeof record.comment === "string" ? record.comment : undefined;
+    if (comment !== undefined)
+        evaluation.comment = comment;
+    const metadata = asRecord(record.metadata);
+    if (metadata)
+        evaluation.metadata = metadata;
+    const dataType = pickCanonicalField(record, "dataType");
+    if (dataType)
+        evaluation.dataType = dataType;
+    const configId = pickCanonicalField(record, "configId");
+    if (configId)
+        evaluation.configId = configId;
+    return evaluation;
+}
+function asItemResult(raw) {
+    const record = asRecord(raw);
+    if (!record)
+        return null;
+    const rawItem = asRecord(record.item) ?? {};
+    const expectedOutput = pickCanonicalField(rawItem, "expectedOutput");
+    const { expected_output: _expectedOutputSnake, ...restItem } = rawItem;
+    const item = {
+        ...restItem,
+        ...(expectedOutput !== undefined ? { expectedOutput } : {}),
+    };
+    const itemId = pickField(item, "id") ?? pickCanonicalField(record, "datasetItemId");
+    if (itemId && item.id === undefined)
+        item.id = itemId;
+    const evaluations = Array.isArray(record.evaluations)
+        ? record.evaluations
+            .map(asEvaluation)
+            .filter((value) => value !== null)
+        : [];
+    const normalized = {
+        item,
+        input: pickField(record, "input") ?? item.input,
+        expectedOutput: pickCanonicalField(record, "expectedOutput") ?? item.expectedOutput,
+        output: record.output,
+        evaluations,
+    };
+    const traceId = pickCanonicalField(record, "traceId");
+    if (traceId)
+        normalized.traceId = traceId;
+    const datasetRunId = pickCanonicalField(record, "datasetRunId");
+    if (datasetRunId)
+        normalized.datasetRunId = datasetRunId;
+    return normalized;
+}
+function normalizeExperimentResult(raw) {
+    const record = asRecord(raw);
+    if (!record)
+        return null;
+    const runEvaluationsRaw = pickCanonicalField(record, "runEvaluations") ?? [];
+    const itemResultsRaw = pickCanonicalField(record, "itemResults") ?? [];
+    const normalized = {
+        runName: pickCanonicalField(record, "runName") ?? pickField(record, "name"),
+        itemResults: itemResultsRaw
+            .map(asItemResult)
+            .filter((value) => value !== null),
+        runEvaluations: runEvaluationsRaw
+            .map(asEvaluation)
+            .filter((value) => value !== null),
+    };
+    const experimentId = pickCanonicalField(record, "experimentId");
+    if (experimentId)
+        normalized.experimentId = experimentId;
+    const datasetRunId = pickCanonicalField(record, "datasetRunId");
+    if (datasetRunId)
+        normalized.datasetRunId = datasetRunId;
+    return normalized;
+}
+/**
+ * The JS SDK's `runName` usually appends an ISO timestamp; strip it when we
+ * want the user-provided experiment name for display.
+ */
+function experimentDisplayName(result) {
+    if (!result.runName)
+        return undefined;
+    return result.runName.replace(/ - \d{4}-\d{2}-\d{2}T[^ ]+$/, "") || result.runName;
+}
+function resolveLangfuseExperimentUrl(params) {
+    const { result, baseUrl, projectId } = params;
+    if (!result)
+        return null;
+    if (!result.datasetRunId)
+        return null;
+    if (baseUrl && projectId && typeof result.experimentId === "string" && result.experimentId) {
+        return buildExperimentResultsUrl({
+            baseUrl,
+            projectId,
+            experimentId: result.experimentId,
+        });
+    }
+    return null;
+}
+
+;// CONCATENATED MODULE: ./src/comment/body.ts
+// The pure text layer of the PR comment: markers, section parsing/merging,
+// and markdown rendering. Everything here is a function from strings to
+// strings — the GitHub API orchestration lives in `./post`.
+
+
+
+// ---------------------------------------------------------------------------
+// Markers
+// ---------------------------------------------------------------------------
+/**
+ * Top-level marker identifying the single PR comment for a workflow run.
+ * All action invocations in the same run share the same comment — they
+ * splice their own sections into its body.
+ */
+function runMarker(runId) {
+    return `<!-- langfuse-experiment-action run_id=${encodeURIComponent(runId)} -->`;
+}
+/**
+ * Delimiters wrapping one invocation's section inside the run comment,
+ * keyed on the full `SectionKey` — the job display name is the only
+ * per-leg identity GitHub gives us for matrix jobs.
+ *
+ * The trailing space on `start` is load-bearing: markers are matched by
+ * `indexOf` prefix, and the space terminates the job key so `job=a` can
+ * never match `job=ab` (`encodeURIComponent` never emits a space).
+ *
+ * The `/2` versions the format. Released (pre-job-key) action versions
+ * match sections by the literal prefix `…:start script=<encoded>` and pair
+ * it with the first legacy end marker for the same script — without `/2`,
+ * an old-version job re-running in a mixed-version run could anchor on a
+ * new section's start marker and splice out everything up to a legacy end
+ * marker, deleting other jobs' sections. `/2` makes new markers invisible
+ * to the old matcher, so old jobs append alongside instead.
+ */
+function sectionMarkers(key) {
+    const script = encodeURIComponent(key.scriptPath);
+    const job = encodeURIComponent(key.jobKey);
+    return {
+        start: `<!-- langfuse-experiment-action:start/2 script=${script} job=${job} `,
+        end: `<!-- langfuse-experiment-action:end/2 script=${script} job=${job} -->`,
+    };
+}
+function overviewMarkers() {
+    return {
+        start: "<!-- langfuse-experiment-action:overview:start -->",
+        end: "<!-- langfuse-experiment-action:overview:end -->",
+    };
+}
+function detailsMarkers() {
+    return {
+        start: "<!-- langfuse-experiment-action:details:start -->",
+        end: "<!-- langfuse-experiment-action:details:end -->",
+    };
+}
+/**
+ * Human-readable label for a script file. Extensions are kept (distinguishes
+ * `experiment.py` from `experiment.ts`) and the immediate parent directory
+ * is prefixed when informative, so several experiments named `experiment.py`
+ * in different folders don't collapse to the same display string.
+ */
+function scriptLabel(scriptPath, scriptName) {
+    const parent = external_node_path_namespaceObject.basename(external_node_path_namespaceObject.dirname(scriptPath));
+    if (!parent || parent === "." || parent === "/")
+        return scriptName;
+    return `${parent}/${scriptName}`;
+}
+// ---------------------------------------------------------------------------
+// Cell formatting
+// ---------------------------------------------------------------------------
+const CELL_MAX = 80;
+/**
+ * Maximum rows shown in the per-item `<details>` table. GitHub caps
+ * comments at 64 KB and a realistic item row is ~80 chars; 50 rows keeps
+ * us comfortably under the cap even for multi-script directories, and
+ * bigger lists are hard to scan by eye anyway. The full set is always one
+ * click away via the "View on Langfuse" link in the subtitle.
+ */
+const MAX_ITEMS_SHOWN = 50;
+function stringifyCell(v) {
+    if (typeof v === "string")
+        return v;
+    if (v == null)
+        return "";
+    if (typeof v === "number" || typeof v === "boolean")
+        return String(v);
+    try {
+        return JSON.stringify(v);
+    }
+    catch {
+        return String(v);
+    }
+}
+/** Escape + truncate a value to fit inside a markdown table cell. */
+function cell(v, maxLen = CELL_MAX) {
+    let s = stringifyCell(v).replace(/[\r\n]+/g, " ");
+    if (s.length > maxLen)
+        s = s.slice(0, maxLen - 1) + "…";
+    s = s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+    return s || "—";
+}
+function formatScore(v) {
+    if (typeof v === "number")
+        return v.toFixed(3);
+    if (v == null)
+        return "—";
+    return cell(v, 32);
+}
+function statusSummary(err) {
+    if (!err)
+        return { icon: "✅", status: "✅ Pass" };
+    if (err.isRegression)
+        return { icon: "❌", status: "❌ Regression" };
+    return { icon: "❌", status: "❌ Error" };
+}
+function renderActionLinks(runUrl, langfuseUrl, localDataset) {
+    const actions = [];
+    if (runUrl)
+        actions.push(`[View GitHub Action Run](${runUrl})`);
+    if (langfuseUrl)
+        actions.push(`[View in Langfuse](${langfuseUrl})`);
+    if (localDataset)
+        actions.push("Local dataset");
+    return actions;
+}
+function renderActionMetadata(runUrl, langfuseUrl, localDataset) {
+    const attrs = [];
+    if (runUrl)
+        attrs.push(`run=${encodeURIComponent(runUrl)}`);
+    if (langfuseUrl)
+        attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
+    if (localDataset)
+        attrs.push("local_dataset=true");
+    return attrs.length > 0 ? attrs.join(" ") : null;
+}
+function renderSectionStartMarker(key, opts = {}) {
+    const { start } = sectionMarkers(key);
+    const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl, opts.localDataset);
+    return `${start}${attrs ? `${attrs} ` : ""}-->`;
+}
+function parseActionAttributes(raw) {
+    const attrs = new Map((raw ?? "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => {
+        const [key, ...valueParts] = part.split("=");
+        return [key ?? "", valueParts.join("=")];
+    }));
+    const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
+    const langfuseUrl = attrs.get("langfuse")
+        ? decodeURIComponent(attrs.get("langfuse") ?? "")
+        : undefined;
+    return {
+        runUrl,
+        langfuseUrl,
+        localDataset: attrs.get("local_dataset") === "true",
+    };
+}
+function renderOverviewTable(metas) {
+    const byDisplayName = new Map();
+    for (const meta of metas) {
+        const group = byDisplayName.get(meta.displayName) ?? [];
+        group.push(meta);
+        byDisplayName.set(meta.displayName, group);
+    }
+    const rows = metas.map((meta) => {
+        const group = byDisplayName.get(meta.displayName) ?? [];
+        let experiment = cell(meta.displayName, 56);
+        if (group.length > 1) {
+            // Colliding display names usually mean matrix legs sharing a script —
+            // the job name is what tells them apart. Decided per row: fall back to
+            // the script label only when another collider shares *this* row's job
+            // key (distinct scripts, same job), so one ambiguous row doesn't strip
+            // the job key from every other row in the group.
+            const jobKeyShared = group.some((other) => other !== meta && (other.jobKey ?? "") === (meta.jobKey ?? ""));
+            const disambiguator = meta.jobKey && !jobKeyShared ? meta.jobKey : meta.scriptLabel;
+            experiment = `${cell(meta.displayName, 48)} (\`${cell(disambiguator, 32)}\`)`;
+        }
+        return [
+            experiment,
+            cell(meta.status, 20),
+            renderActionLinks(meta.runUrl, meta.langfuseUrl, meta.localDataset).join(" · ") || "—",
+        ];
+    });
+    return [
+        "| Experiment | Status | Actions |",
+        "| --- | --- | --- |",
+        ...rows.map((row) => `| ${row.join(" | ")} |`),
+    ].join("\n");
+}
+function replaceMarkedBlock(body, start, end, replacement) {
+    const startIdx = body.indexOf(start);
+    const endIdx = body.indexOf(end, startIdx >= 0 ? startIdx : 0);
+    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx)
+        return body;
+    const before = body.slice(0, startIdx).replace(/\s+$/, "");
+    const after = body.slice(endIdx + end.length).replace(/^\s+/, "");
+    return `${before}\n\n${replacement}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+function parseSectionOverview(body) {
+    const sections = [];
+    // The `/2` and `job=` are optional so sections written by pre-job-key
+    // action versions (possible when one run mixes action versions across
+    // jobs) still parse.
+    const regex = /<!-- langfuse-experiment-action:start(\/2)? script=([^ >]+)(?: job=([^ >]*))?([^>]*)-->/g;
+    let match;
+    while ((match = regex.exec(body)) !== null) {
+        const version = match[1] ?? "";
+        const encodedScriptPath = match[2];
+        if (!encodedScriptPath)
+            continue;
+        const scriptPath = decodeURIComponent(encodedScriptPath);
+        const encodedJobKey = match[3];
+        // Reconstruct the end marker in the same format the section was written
+        // in — from the *encoded* captures, so we match byte-for-byte.
+        const end = encodedJobKey === undefined
+            ? `<!-- langfuse-experiment-action:end${version} script=${encodedScriptPath} -->`
+            : `<!-- langfuse-experiment-action:end${version} script=${encodedScriptPath} job=${encodedJobKey} -->`;
+        const sectionStart = match.index;
+        const sectionEnd = body.indexOf(end, sectionStart);
+        if (sectionEnd === -1)
+            continue;
+        const sectionBody = body.slice(sectionStart, sectionEnd + end.length);
+        const summaryText = sectionBody.match(/<details(?: open)?><summary>(.*?)<\/summary>/s)?.[1];
+        if (!summaryText)
+            continue;
+        const firstSpace = summaryText.indexOf(" ");
+        if (firstSpace === -1)
+            continue;
+        const displayName = summaryText
+            .slice(firstSpace + 1)
+            .replace(/ \(&lt;a href="[^"]+"&gt;Source&lt;\/a&gt;\)$/, "")
+            .replace(/ \(<a href="[^"]+">Source<\/a>\)$/, "");
+        const scriptLabelText = scriptLabel(scriptPath, external_node_path_namespaceObject.basename(scriptPath));
+        const status = sectionBody.includes("> **Run failed —")
+            ? "❌ Error"
+            : sectionBody.match(/^> \*\*.+:\*\*/m)
+                ? "❌ Regression"
+                : "✅ Pass";
+        const startAttrs = parseActionAttributes(match[4]?.trim());
+        const legacyActionMeta = parseActionAttributes(sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1]);
+        const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
+        const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
+        const localDataset = startAttrs.localDataset ?? legacyActionMeta.localDataset;
+        sections.push({
+            scriptPath,
+            jobKey: encodedJobKey === undefined ? undefined : decodeURIComponent(encodedJobKey),
+            displayName,
+            scriptLabel: scriptLabelText,
+            status,
+            runUrl,
+            langfuseUrl,
+            localDataset,
+        });
+    }
+    return sections;
+}
+function refreshOverview(body) {
+    const { start: overviewStart, end: overviewEnd } = overviewMarkers();
+    const { start: detailsStart, end: detailsEnd } = detailsMarkers();
+    const withoutOverview = replaceMarkedBlock(body, overviewStart, overviewEnd, "");
+    const withoutLayout = replaceMarkedBlock(withoutOverview, detailsStart, detailsEnd, "");
+    const metas = parseSectionOverview(withoutLayout);
+    if (metas.length === 0)
+        return withoutLayout;
+    // Matches both current (`/2`) and legacy section starts so the overview
+    // lands above the first section regardless of which action version wrote it.
+    const firstSectionIdx = withoutLayout.search(/<!-- langfuse-experiment-action:start(?:\/2)? script=/);
+    if (firstSectionIdx === -1)
+        return withoutLayout;
+    const overviewBlock = [overviewStart, renderOverviewTable(metas), overviewEnd].join("\n");
+    const detailsBlock = [detailsStart, "**Details**", detailsEnd].join("\n");
+    const before = withoutLayout.slice(0, firstSectionIdx).replace(/\s+$/, "");
+    const after = withoutLayout.slice(firstSectionIdx).replace(/^\s+/, "");
+    return `${before}\n\n${overviewBlock}\n\n${detailsBlock}\n\n${after}`
+        .replace(/\n{3,}/g, "\n\n")
+        .trimEnd()
+        .concat("\n");
+}
+/**
+ * Job display names come from workflow YAML — including dynamically built
+ * matrices (`fromJSON(...)` over changed files, external config) — so they
+ * can contain arbitrary text. Unescaped, a crafted name could break out of
+ * the `<summary>` element or forge a `<!-- langfuse-experiment-action`
+ * marker inside the body (escaping `<` neutralizes both).
+ */
+function escapeHtml(s) {
+    return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+function renderSectionSummary(params) {
+    return `${params.icon} ${params.displayName}`;
+}
+function renderSummarySourceLink(scriptUrl) {
+    if (!scriptUrl)
+        return "";
+    return ` (<a href="${scriptUrl}">Source</a>)`;
+}
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+function renderScoresTable(evaluations) {
+    if (evaluations.length === 0)
+        return "";
+    const rows = evaluations.map((e) => `| \`${e.name}\` | ${formatScore(e.value)} |`);
+    return ["| Score | Value |", "| --- | --- |", ...rows].join("\n");
+}
+function extractLangfuseProjectRef(langfuseUrl) {
+    if (!langfuseUrl)
+        return null;
+    try {
+        const url = new URL(langfuseUrl);
+        const projectIdx = url.pathname.indexOf("/project/");
+        if (projectIdx === -1)
+            return null;
+        const basePath = url.pathname.slice(0, projectIdx);
+        const projectPath = url.pathname.slice(projectIdx + "/project/".length);
+        const [projectId] = projectPath.split("/", 1);
+        if (!projectId)
+            return null;
+        return {
+            baseUrl: `${url.origin}${basePath}`,
+            projectId: decodeURIComponent(projectId),
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function itemLinkUrl(itemResult, langfuseUrl) {
+    const itemId = typeof itemResult.item.id === "string" ? itemResult.item.id : undefined;
+    const datasetId = typeof itemResult.item.dataset_id === "string"
+        ? itemResult.item.dataset_id
+        : typeof itemResult.item.datasetId === "string"
+            ? itemResult.item.datasetId
+            : undefined;
+    if (!itemId || !datasetId)
+        return undefined;
+    const projectRef = extractLangfuseProjectRef(langfuseUrl);
+    if (!projectRef)
+        return undefined;
+    return buildDatasetItemUrl({
+        baseUrl: projectRef.baseUrl,
+        projectId: projectRef.projectId,
+        datasetId,
+        itemId,
+    });
+}
+function renderItemsTable(itemResults, opts = {}) {
+    if (itemResults.length === 0)
+        return "";
+    const evaluatorNames = Array.from(new Set(itemResults.flatMap((r) => r.evaluations.map((e) => e.name))));
+    const header = ["Item", "Input", "Expected", "Output", ...evaluatorNames];
+    const rows = itemResults.map((r, idx) => {
+        const label = String(idx + 1);
+        const itemUrl = itemLinkUrl(r, opts.langfuseUrl);
+        const scoreByName = new Map(r.evaluations.map((e) => [e.name, e.value]));
+        const cells = [
+            itemUrl ? `[${label}](${itemUrl})` : label,
+            cell(r.input),
+            cell(r.expectedOutput),
+            cell(r.output),
+            ...evaluatorNames.map((n) => scoreByName.has(n)
+                ? formatScore(scoreByName.get(n))
+                : "—"),
+        ];
+        return `| ${cells.join(" | ")} |`;
+    });
+    return [`| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...rows].join("\n");
+}
+/**
+ * GitHub alert callouts — `[!WARNING]` for regressions (the user's own gate
+ * fired → expected failure), `[!CAUTION]` for unrelated crashes
+ * (unexpected). See
+ * https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
+ */
+function renderErrorCallout(err) {
+    if (err.isRegression) {
+        return `> **${err.name}:** ${err.message}`;
+    }
+    return `> **Run failed — ${err.name}:** ${err.message}`;
+}
+/**
+ * Render one `ScriptResult` as a complete PR-comment section, wrapped in
+ * start/end markers keyed on the script path.
+ *
+ * Heading comes from the normalized SDK-style `runName`; on a crash (no
+ * result) we fall back to the script filename so the section still shows
+ * something recognisable.
+ */
+function renderScriptSection(opts) {
+    const { result: scriptResult, jobKey = "", jobLabel, runUrl, scriptUrl } = opts;
+    const key = { scriptPath: scriptResult.scriptPath, jobKey };
+    const { end } = sectionMarkers(key);
+    const normalized = scriptResult.normalizedResult;
+    const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
+    const localDataset = Boolean(normalized && !normalized.datasetRunId);
+    const failed = scriptResult.error !== null;
+    const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
+    const { icon } = statusSummary(scriptResult.error);
+    const summary = renderSectionSummary({
+        icon,
+        displayName: jobLabel ? `${displayName} — ${escapeHtml(jobLabel)}` : displayName,
+    });
+    const lines = [
+        renderSectionStartMarker(key, {
+            runUrl,
+            langfuseUrl,
+            localDataset,
+        }),
+        failed
+            ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
+            : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
+        "",
+    ];
+    if (scriptResult.error) {
+        lines.push(renderErrorCallout(scriptResult.error));
+        lines.push("");
+    }
+    if (normalized && normalized.runEvaluations.length > 0) {
+        lines.push("<br>");
+        lines.push("");
+        lines.push(renderScoresTable(normalized.runEvaluations));
+        lines.push("");
+    }
+    if (normalized && normalized.itemResults.length > 0) {
+        const total = normalized.itemResults.length;
+        const visible = normalized.itemResults.slice(0, MAX_ITEMS_SHOWN);
+        const hiddenCount = total - visible.length;
+        lines.push(`<details><summary>Item results (${total})</summary>`);
+        lines.push("");
+        lines.push(renderItemsTable(visible, { langfuseUrl }));
+        if (hiddenCount > 0) {
+            lines.push("");
+            if (langfuseUrl) {
+                lines.push(`_Showing first ${visible.length} of ${total} — [View in Langfuse](${langfuseUrl}) for the full set._`);
+            }
+            else {
+                lines.push(`_Showing first ${visible.length} of ${total}._`);
+            }
+        }
+        lines.push("");
+        lines.push("</details>");
+        lines.push("");
+    }
+    if (!scriptResult.error &&
+        !normalized?.runEvaluations.length &&
+        !normalized?.itemResults.length) {
+        lines.push("_No evaluations or items were returned._");
+        lines.push("");
+    }
+    lines.push("</details>");
+    lines.push(end);
+    return `${lines.join("\n").trimEnd()}\n`;
+}
+// ---------------------------------------------------------------------------
+// Comment body assembly
+// ---------------------------------------------------------------------------
+// Brand icon from https://langfuse.com/brand. Inline in the H1 gives the
+// comment a recognizable signature without dominating the layout.
+const LANGFUSE_ICON = "https://langfuse.com/brand-assets/icon/color/langfuse-icon.png";
+/**
+ * The top-level `# …` title of the comment. Shown once per run, preserved
+ * across upserts.
+ */
+function renderCommentTitle(opts = {}) {
+    // `align="center"` is what actually works on GitHub comments; their
+    // markdown sanitizer drops inline `style`/CSS, but keeps the legacy
+    // `align` attribute. See
+    // https://github.com/orgs/community/discussions/183876
+    const icon = `<img src="${LANGFUSE_ICON}" height="32" alt="" align="center" />`;
+    const parts = [];
+    if (opts.shortSha)
+        parts.push(`\`${opts.shortSha}\``);
+    if (opts.runAttempt && opts.runAttempt > 1)
+        parts.push(`(#${opts.runAttempt})`);
+    const suffix = parts.length > 0 ? `: ${parts.join(" ")}` : "";
+    return `### ${icon} Experiment Results${suffix}`;
+}
+function buildFreshCommentBody(runId, titleOpts, sections) {
+    const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");
+    return refreshOverview(`${body.trimEnd()}\n`);
+}
+function refreshCommentTitle(body, titleOpts) {
+    const title = renderCommentTitle(titleOpts);
+    const lines = body.split("\n");
+    const titleIdx = lines.findIndex((line) => line.startsWith(`### <img src="${LANGFUSE_ICON}"`));
+    if (titleIdx !== -1) {
+        lines[titleIdx] = title;
+        return lines.join("\n");
+    }
+    const markerIdx = lines.findIndex((line) => line.startsWith("<!-- langfuse-experiment-action run_id="));
+    if (markerIdx !== -1) {
+        lines.splice(markerIdx + 1, 0, "", title);
+        return lines.join("\n");
+    }
+    return `${title}\n\n${body.replace(/^\s+/, "")}`;
+}
+/**
+ * Replace an existing section with the same `SectionKey` in place, or
+ * append it to the end of the body if none exists.
+ */
+function upsertSection(existingBody, key, section) {
+    const { start, end } = sectionMarkers(key);
+    const updated = replaceMarkedBlock(existingBody, start, end, section);
+    if (updated !== existingBody)
+        return updated;
+    return `${existingBody.replace(/\s+$/, "")}\n\n${section}\n`;
+}
+
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/@actions+github@9.1.1/node_modules/@actions/github/lib/context.js
 
 
@@ -38085,188 +38780,6 @@ function getOctokit(token, options, ...additionalPlugins) {
     return new GitHubWithPlugins(getOctokitOptions(token, options));
 }
 //# sourceMappingURL=github.js.map
-;// CONCATENATED MODULE: ./src/langfuse/project.ts
-
-/**
- * Resolve the Langfuse project id from the action's API credentials. A
- * public/secret key pair is scoped to exactly one project, so the first
- * entry of `/api/public/projects` is it.
- *
- * Returns `null` on any failure — the caller falls back to not rendering
- * the "View on Langfuse" link rather than blowing up.
- */
-async function resolveProjectId(params) {
-    const { baseUrl, publicKey, secretKey } = params;
-    if (!baseUrl || !publicKey || !secretKey)
-        return null;
-    try {
-        const auth = Buffer.from(`${publicKey}:${secretKey}`).toString("base64");
-        const res = await fetch(`${stripTrailingSlash(baseUrl)}/api/public/projects`, {
-            headers: { Authorization: `Basic ${auth}` },
-        });
-        if (!res.ok) {
-            core_debug(`resolveProjectId: /api/public/projects returned ${res.status}`);
-            return null;
-        }
-        const body = (await res.json());
-        const id = body.data?.[0]?.id ?? null;
-        core_debug(`resolveProjectId: ${id ?? "<unresolved>"}`);
-        return id;
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        core_debug(`resolveProjectId failed: ${msg}`);
-        return null;
-    }
-}
-/**
- * Build the Langfuse UI link to an experiment's results page.
- *   <base>/project/<project_id>/experiments/results?baseline=<experiment_id>
- */
-function buildExperimentResultsUrl(params) {
-    const { baseUrl, projectId, experimentId } = params;
-    const base = stripTrailingSlash(baseUrl);
-    return `${base}/project/${encodeURIComponent(projectId)}/experiments/results?baseline=${encodeURIComponent(experimentId)}`;
-}
-function buildDatasetItemUrl(params) {
-    const { baseUrl, projectId, datasetId, itemId } = params;
-    const base = stripTrailingSlash(baseUrl);
-    return `${base}/project/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/items/${encodeURIComponent(itemId)}`;
-}
-function stripTrailingSlash(s) {
-    return s.endsWith("/") ? s.slice(0, -1) : s;
-}
-
-;// CONCATENATED MODULE: ./src/experiment-result.ts
-
-function asRecord(value) {
-    if (!value || typeof value !== "object")
-        return null;
-    return value;
-}
-function toSnakeCase(key) {
-    return key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`);
-}
-function pickField(obj, ...keys) {
-    const record = asRecord(obj);
-    if (!record)
-        return undefined;
-    for (const key of keys) {
-        if (key in record && record[key] !== undefined)
-            return record[key];
-    }
-    return undefined;
-}
-function pickCanonicalField(obj, canonicalKey, ...extraAliases) {
-    return pickField(obj, canonicalKey, toSnakeCase(canonicalKey), ...extraAliases);
-}
-function asEvaluation(raw) {
-    const record = asRecord(raw);
-    if (!record)
-        return null;
-    const name = typeof record.name === "string" ? record.name : null;
-    if (!name)
-        return null;
-    const evaluation = {
-        name,
-        value: (record.value ?? null),
-    };
-    const comment = typeof record.comment === "string" ? record.comment : undefined;
-    if (comment !== undefined)
-        evaluation.comment = comment;
-    const metadata = asRecord(record.metadata);
-    if (metadata)
-        evaluation.metadata = metadata;
-    const dataType = pickCanonicalField(record, "dataType");
-    if (dataType)
-        evaluation.dataType = dataType;
-    const configId = pickCanonicalField(record, "configId");
-    if (configId)
-        evaluation.configId = configId;
-    return evaluation;
-}
-function asItemResult(raw) {
-    const record = asRecord(raw);
-    if (!record)
-        return null;
-    const rawItem = asRecord(record.item) ?? {};
-    const expectedOutput = pickCanonicalField(rawItem, "expectedOutput");
-    const { expected_output: _expectedOutputSnake, ...restItem } = rawItem;
-    const item = {
-        ...restItem,
-        ...(expectedOutput !== undefined ? { expectedOutput } : {}),
-    };
-    const itemId = pickField(item, "id") ?? pickCanonicalField(record, "datasetItemId");
-    if (itemId && item.id === undefined)
-        item.id = itemId;
-    const evaluations = Array.isArray(record.evaluations)
-        ? record.evaluations
-            .map(asEvaluation)
-            .filter((value) => value !== null)
-        : [];
-    const normalized = {
-        item,
-        input: pickField(record, "input") ?? item.input,
-        expectedOutput: pickCanonicalField(record, "expectedOutput") ?? item.expectedOutput,
-        output: record.output,
-        evaluations,
-    };
-    const traceId = pickCanonicalField(record, "traceId");
-    if (traceId)
-        normalized.traceId = traceId;
-    const datasetRunId = pickCanonicalField(record, "datasetRunId");
-    if (datasetRunId)
-        normalized.datasetRunId = datasetRunId;
-    return normalized;
-}
-function normalizeExperimentResult(raw) {
-    const record = asRecord(raw);
-    if (!record)
-        return null;
-    const runEvaluationsRaw = pickCanonicalField(record, "runEvaluations") ?? [];
-    const itemResultsRaw = pickCanonicalField(record, "itemResults") ?? [];
-    const normalized = {
-        runName: pickCanonicalField(record, "runName") ?? pickField(record, "name"),
-        itemResults: itemResultsRaw
-            .map(asItemResult)
-            .filter((value) => value !== null),
-        runEvaluations: runEvaluationsRaw
-            .map(asEvaluation)
-            .filter((value) => value !== null),
-    };
-    const experimentId = pickCanonicalField(record, "experimentId");
-    if (experimentId)
-        normalized.experimentId = experimentId;
-    const datasetRunId = pickCanonicalField(record, "datasetRunId");
-    if (datasetRunId)
-        normalized.datasetRunId = datasetRunId;
-    return normalized;
-}
-/**
- * The JS SDK's `runName` usually appends an ISO timestamp; strip it when we
- * want the user-provided experiment name for display.
- */
-function experimentDisplayName(result) {
-    if (!result.runName)
-        return undefined;
-    return result.runName.replace(/ - \d{4}-\d{2}-\d{2}T[^ ]+$/, "") || result.runName;
-}
-function resolveLangfuseExperimentUrl(params) {
-    const { result, baseUrl, projectId } = params;
-    if (!result)
-        return null;
-    if (!result.datasetRunId)
-        return null;
-    if (baseUrl && projectId && typeof result.experimentId === "string" && result.experimentId) {
-        return buildExperimentResultsUrl({
-            baseUrl,
-            projectId,
-            experimentId: result.experimentId,
-        });
-    }
-    return null;
-}
-
 ;// CONCATENATED MODULE: ./src/github/errors.ts
 function errorStatus(err) {
     return typeof err.status === "number"
@@ -38733,499 +39246,30 @@ function normalizeRepoPath(scriptPath, workspace) {
     return normalizedScript.slice(normalizedWorkspace.length + 1);
 }
 
-;// CONCATENATED MODULE: ./src/comment.ts
+;// CONCATENATED MODULE: ./src/comment/post.ts
+// The GitHub API layer of the PR comment: resolving the canonical comment
+// for a run, the convergent merge-verify-retry upsert, and the high-level
+// entry point used by `main.ts`. All text assembly lives in `./body`.
 
 
 
 
 
 
-
-
-// ---------------------------------------------------------------------------
-// Markers
-// ---------------------------------------------------------------------------
-/**
- * Top-level marker identifying the single PR comment for a workflow run.
- * All action invocations in the same run share the same comment — they
- * splice their own sections into its body.
- */
-function runMarker(runId) {
-    return `<!-- langfuse-experiment-action run_id=${encodeURIComponent(runId)} -->`;
-}
-/**
- * Delimiters wrapping one invocation's section inside the run comment. We
- * key the marker on the script *path* (so two scripts whose SDK experiment
- * names collide still get separate sections) *and* the job key (so parallel
- * matrix legs running the same script don't overwrite each other — the job
- * display name is the only per-leg identity GitHub gives us).
- *
- * The trailing space on `start` is load-bearing: markers are matched by
- * `indexOf` prefix, and the space terminates the job key so `job=a` can
- * never match `job=ab` (`encodeURIComponent` never emits a space).
- */
-function sectionMarkers(scriptPath, jobKey) {
-    const script = encodeURIComponent(scriptPath);
-    const job = encodeURIComponent(jobKey);
-    return {
-        start: `<!-- langfuse-experiment-action:start script=${script} job=${job} `,
-        end: `<!-- langfuse-experiment-action:end script=${script} job=${job} -->`,
-    };
-}
-function overviewMarkers() {
-    return {
-        start: "<!-- langfuse-experiment-action:overview:start -->",
-        end: "<!-- langfuse-experiment-action:overview:end -->",
-    };
-}
-function detailsMarkers() {
-    return {
-        start: "<!-- langfuse-experiment-action:details:start -->",
-        end: "<!-- langfuse-experiment-action:details:end -->",
-    };
-}
-/**
- * Human-readable label for a script file. Extensions are kept (distinguishes
- * `experiment.py` from `experiment.ts`) and the immediate parent directory
- * is prefixed when informative, so several experiments named `experiment.py`
- * in different folders don't collapse to the same display string.
- */
-function scriptLabel(scriptPath, scriptName) {
-    const parent = external_node_path_namespaceObject.basename(external_node_path_namespaceObject.dirname(scriptPath));
-    if (!parent || parent === "." || parent === "/")
-        return scriptName;
-    return `${parent}/${scriptName}`;
-}
-// ---------------------------------------------------------------------------
-// Cell formatting
-// ---------------------------------------------------------------------------
-const CELL_MAX = 80;
-/**
- * Maximum rows shown in the per-item `<details>` table. GitHub caps
- * comments at 64 KB and a realistic item row is ~80 chars; 50 rows keeps
- * us comfortably under the cap even for multi-script directories, and
- * bigger lists are hard to scan by eye anyway. The full set is always one
- * click away via the "View on Langfuse" link in the subtitle.
- */
-const MAX_ITEMS_SHOWN = 50;
-function stringifyCell(v) {
-    if (typeof v === "string")
-        return v;
-    if (v == null)
-        return "";
-    if (typeof v === "number" || typeof v === "boolean")
-        return String(v);
-    try {
-        return JSON.stringify(v);
-    }
-    catch {
-        return String(v);
-    }
-}
-/** Escape + truncate a value to fit inside a markdown table cell. */
-function cell(v, maxLen = CELL_MAX) {
-    let s = stringifyCell(v).replace(/[\r\n]+/g, " ");
-    if (s.length > maxLen)
-        s = s.slice(0, maxLen - 1) + "…";
-    s = s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
-    return s || "—";
-}
-function formatScore(v) {
-    if (typeof v === "number")
-        return v.toFixed(3);
-    if (v == null)
-        return "—";
-    return cell(v, 32);
-}
-function statusSummary(err) {
-    if (!err)
-        return { icon: "✅", status: "✅ Pass" };
-    if (err.isRegression)
-        return { icon: "❌", status: "❌ Regression" };
-    return { icon: "❌", status: "❌ Error" };
-}
-function renderActionLinks(runUrl, langfuseUrl, localDataset) {
-    const actions = [];
-    if (runUrl)
-        actions.push(`[View GitHub Action Run](${runUrl})`);
-    if (langfuseUrl)
-        actions.push(`[View in Langfuse](${langfuseUrl})`);
-    if (localDataset)
-        actions.push("Local dataset");
-    return actions;
-}
-function renderActionMetadata(runUrl, langfuseUrl, localDataset) {
-    const attrs = [];
-    if (runUrl)
-        attrs.push(`run=${encodeURIComponent(runUrl)}`);
-    if (langfuseUrl)
-        attrs.push(`langfuse=${encodeURIComponent(langfuseUrl)}`);
-    if (localDataset)
-        attrs.push("local_dataset=true");
-    return attrs.length > 0 ? attrs.join(" ") : null;
-}
-function renderSectionStartMarker(scriptPath, jobKey, opts = {}) {
-    const { start } = sectionMarkers(scriptPath, jobKey);
-    const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl, opts.localDataset);
-    return `${start}${attrs ? `${attrs} ` : ""}-->`;
-}
-function parseActionAttributes(raw) {
-    const attrs = new Map((raw ?? "")
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((part) => {
-        const [key, ...valueParts] = part.split("=");
-        return [key ?? "", valueParts.join("=")];
-    }));
-    const runUrl = attrs.get("run") ? decodeURIComponent(attrs.get("run") ?? "") : undefined;
-    const langfuseUrl = attrs.get("langfuse")
-        ? decodeURIComponent(attrs.get("langfuse") ?? "")
-        : undefined;
-    return {
-        runUrl,
-        langfuseUrl,
-        localDataset: attrs.get("local_dataset") === "true",
-    };
-}
-function renderOverviewTable(metas) {
-    const byDisplayName = new Map();
-    for (const meta of metas) {
-        const group = byDisplayName.get(meta.displayName) ?? [];
-        group.push(meta);
-        byDisplayName.set(meta.displayName, group);
-    }
-    const rows = metas.map((meta) => {
-        const group = byDisplayName.get(meta.displayName) ?? [];
-        let experiment = cell(meta.displayName, 56);
-        if (group.length > 1) {
-            // Colliding display names usually mean matrix legs sharing a script —
-            // the job name is what tells them apart. Fall back to the script label
-            // when job keys don't disambiguate (distinct scripts, same name).
-            const jobKeys = new Set(group.map((m) => m.jobKey ?? ""));
-            const disambiguator = meta.jobKey && jobKeys.size === group.length ? meta.jobKey : meta.scriptLabel;
-            experiment = `${cell(meta.displayName, 48)} (\`${cell(disambiguator, 32)}\`)`;
-        }
-        return [
-            experiment,
-            cell(meta.status, 20),
-            renderActionLinks(meta.runUrl, meta.langfuseUrl, meta.localDataset).join(" · ") || "—",
-        ];
-    });
-    return [
-        "| Experiment | Status | Actions |",
-        "| --- | --- | --- |",
-        ...rows.map((row) => `| ${row.join(" | ")} |`),
-    ].join("\n");
-}
-function replaceMarkedBlock(body, start, end, replacement) {
-    const startIdx = body.indexOf(start);
-    const endIdx = body.indexOf(end, startIdx >= 0 ? startIdx : 0);
-    if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx)
-        return body;
-    const before = body.slice(0, startIdx).replace(/\s+$/, "");
-    const after = body.slice(endIdx + end.length).replace(/^\s+/, "");
-    return `${before}\n\n${replacement}\n\n${after}`.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-}
-function parseSectionOverview(body) {
-    const sections = [];
-    // `job=` is optional so sections written by pre-job-key action versions
-    // (possible when one run mixes action versions across jobs) still parse.
-    const regex = /<!-- langfuse-experiment-action:start script=([^ >]+)(?: job=([^ >]*))?([^>]*)-->/g;
-    let match;
-    while ((match = regex.exec(body)) !== null) {
-        const encodedScriptPath = match[1];
-        if (!encodedScriptPath)
-            continue;
-        const scriptPath = decodeURIComponent(encodedScriptPath);
-        const encodedJobKey = match[2];
-        // Reconstruct the end marker in the same format the section was written
-        // in — from the *encoded* captures, so we match byte-for-byte.
-        const end = encodedJobKey === undefined
-            ? `<!-- langfuse-experiment-action:end script=${encodedScriptPath} -->`
-            : `<!-- langfuse-experiment-action:end script=${encodedScriptPath} job=${encodedJobKey} -->`;
-        const sectionStart = match.index;
-        const sectionEnd = body.indexOf(end, sectionStart);
-        if (sectionEnd === -1)
-            continue;
-        const sectionBody = body.slice(sectionStart, sectionEnd + end.length);
-        const summaryText = sectionBody.match(/<details(?: open)?><summary>(.*?)<\/summary>/s)?.[1];
-        if (!summaryText)
-            continue;
-        const firstSpace = summaryText.indexOf(" ");
-        if (firstSpace === -1)
-            continue;
-        const displayName = summaryText
-            .slice(firstSpace + 1)
-            .replace(/ \(&lt;a href="[^"]+"&gt;Source&lt;\/a&gt;\)$/, "")
-            .replace(/ \(<a href="[^"]+">Source<\/a>\)$/, "");
-        const scriptLabelText = scriptLabel(scriptPath, external_node_path_namespaceObject.basename(scriptPath));
-        const status = sectionBody.includes("> **Run failed —")
-            ? "❌ Error"
-            : sectionBody.match(/^> \*\*.+:\*\*/m)
-                ? "❌ Regression"
-                : "✅ Pass";
-        const startAttrs = parseActionAttributes(match[3]?.trim());
-        const legacyActionMeta = parseActionAttributes(sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1]);
-        const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
-        const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
-        const localDataset = startAttrs.localDataset ?? legacyActionMeta.localDataset;
-        sections.push({
-            scriptPath,
-            jobKey: encodedJobKey === undefined ? undefined : decodeURIComponent(encodedJobKey),
-            displayName,
-            scriptLabel: scriptLabelText,
-            status,
-            runUrl,
-            langfuseUrl,
-            localDataset,
-        });
-    }
-    return sections;
-}
-function refreshOverview(body) {
-    const { start: overviewStart, end: overviewEnd } = overviewMarkers();
-    const { start: detailsStart, end: detailsEnd } = detailsMarkers();
-    const withoutOverview = replaceMarkedBlock(body, overviewStart, overviewEnd, "");
-    const withoutLayout = replaceMarkedBlock(withoutOverview, detailsStart, detailsEnd, "");
-    const metas = parseSectionOverview(withoutLayout);
-    if (metas.length === 0)
-        return withoutLayout;
-    const firstSectionIdx = withoutLayout.indexOf("<!-- langfuse-experiment-action:start script=");
-    if (firstSectionIdx === -1)
-        return withoutLayout;
-    const overviewBlock = [overviewStart, renderOverviewTable(metas), overviewEnd].join("\n");
-    const detailsBlock = [detailsStart, "**Details**", detailsEnd].join("\n");
-    const before = withoutLayout.slice(0, firstSectionIdx).replace(/\s+$/, "");
-    const after = withoutLayout.slice(firstSectionIdx).replace(/^\s+/, "");
-    return `${before}\n\n${overviewBlock}\n\n${detailsBlock}\n\n${after}`
-        .replace(/\n{3,}/g, "\n\n")
-        .trimEnd()
-        .concat("\n");
-}
-function renderSectionSummary(params) {
-    return `${params.icon} ${params.displayName}`;
-}
-function renderSummarySourceLink(scriptUrl) {
-    if (!scriptUrl)
-        return "";
-    return ` (<a href="${scriptUrl}">Source</a>)`;
-}
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-function renderScoresTable(evaluations) {
-    if (evaluations.length === 0)
-        return "";
-    const rows = evaluations.map((e) => `| \`${e.name}\` | ${formatScore(e.value)} |`);
-    return ["| Score | Value |", "| --- | --- |", ...rows].join("\n");
-}
-function extractLangfuseProjectRef(langfuseUrl) {
-    if (!langfuseUrl)
-        return null;
-    try {
-        const url = new URL(langfuseUrl);
-        const projectIdx = url.pathname.indexOf("/project/");
-        if (projectIdx === -1)
-            return null;
-        const basePath = url.pathname.slice(0, projectIdx);
-        const projectPath = url.pathname.slice(projectIdx + "/project/".length);
-        const [projectId] = projectPath.split("/", 1);
-        if (!projectId)
-            return null;
-        return {
-            baseUrl: `${url.origin}${basePath}`,
-            projectId: decodeURIComponent(projectId),
-        };
-    }
-    catch {
-        return null;
-    }
-}
-function itemLinkUrl(itemResult, langfuseUrl) {
-    const itemId = typeof itemResult.item.id === "string" ? itemResult.item.id : undefined;
-    const datasetId = typeof itemResult.item.dataset_id === "string"
-        ? itemResult.item.dataset_id
-        : typeof itemResult.item.datasetId === "string"
-            ? itemResult.item.datasetId
-            : undefined;
-    if (!itemId || !datasetId)
-        return undefined;
-    const projectRef = extractLangfuseProjectRef(langfuseUrl);
-    if (!projectRef)
-        return undefined;
-    return buildDatasetItemUrl({
-        baseUrl: projectRef.baseUrl,
-        projectId: projectRef.projectId,
-        datasetId,
-        itemId,
-    });
-}
-function renderItemsTable(itemResults, opts = {}) {
-    if (itemResults.length === 0)
-        return "";
-    const evaluatorNames = Array.from(new Set(itemResults.flatMap((r) => r.evaluations.map((e) => e.name))));
-    const header = ["Item", "Input", "Expected", "Output", ...evaluatorNames];
-    const rows = itemResults.map((r, idx) => {
-        const label = String(idx + 1);
-        const itemUrl = itemLinkUrl(r, opts.langfuseUrl);
-        const scoreByName = new Map(r.evaluations.map((e) => [e.name, e.value]));
-        const cells = [
-            itemUrl ? `[${label}](${itemUrl})` : label,
-            cell(r.input),
-            cell(r.expectedOutput),
-            cell(r.output),
-            ...evaluatorNames.map((n) => scoreByName.has(n)
-                ? formatScore(scoreByName.get(n))
-                : "—"),
-        ];
-        return `| ${cells.join(" | ")} |`;
-    });
-    return [`| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...rows].join("\n");
-}
-/**
- * GitHub alert callouts — `[!WARNING]` for regressions (the user's own gate
- * fired → expected failure), `[!CAUTION]` for unrelated crashes
- * (unexpected). See
- * https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
- */
-function renderErrorCallout(err) {
-    if (err.isRegression) {
-        return `> **${err.name}:** ${err.message}`;
-    }
-    return `> **Run failed — ${err.name}:** ${err.message}`;
-}
-/**
- * Render one `ScriptResult` as a complete PR-comment section, wrapped in
- * start/end markers keyed on the script path.
- *
- * Heading comes from the normalized SDK-style `runName`; on a crash (no
- * result) we fall back to the script filename so the section still shows
- * something recognisable.
- */
-function renderScriptSection(opts) {
-    const { result: scriptResult, jobKey = "", jobLabel, runUrl, scriptUrl } = opts;
-    const { end } = sectionMarkers(scriptResult.scriptPath, jobKey);
-    const normalized = scriptResult.normalizedResult;
-    const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
-    const localDataset = Boolean(normalized && !normalized.datasetRunId);
-    const failed = scriptResult.error !== null;
-    const displayName = (normalized ? experimentDisplayName(normalized) : undefined) ?? scriptResult.scriptName;
-    const { icon } = statusSummary(scriptResult.error);
-    const summary = renderSectionSummary({
-        icon,
-        displayName: jobLabel ? `${displayName} — ${jobLabel}` : displayName,
-    });
-    const lines = [
-        renderSectionStartMarker(scriptResult.scriptPath, jobKey, {
-            runUrl,
-            langfuseUrl,
-            localDataset,
-        }),
-        failed
-            ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
-            : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
-        "",
-    ];
-    if (scriptResult.error) {
-        lines.push(renderErrorCallout(scriptResult.error));
-        lines.push("");
-    }
-    if (normalized && normalized.runEvaluations.length > 0) {
-        lines.push("<br>");
-        lines.push("");
-        lines.push(renderScoresTable(normalized.runEvaluations));
-        lines.push("");
-    }
-    if (normalized && normalized.itemResults.length > 0) {
-        const total = normalized.itemResults.length;
-        const visible = normalized.itemResults.slice(0, MAX_ITEMS_SHOWN);
-        const hiddenCount = total - visible.length;
-        lines.push(`<details><summary>Item results (${total})</summary>`);
-        lines.push("");
-        lines.push(renderItemsTable(visible, { langfuseUrl }));
-        if (hiddenCount > 0) {
-            lines.push("");
-            if (langfuseUrl) {
-                lines.push(`_Showing first ${visible.length} of ${total} — [View in Langfuse](${langfuseUrl}) for the full set._`);
-            }
-            else {
-                lines.push(`_Showing first ${visible.length} of ${total}._`);
-            }
-        }
-        lines.push("");
-        lines.push("</details>");
-        lines.push("");
-    }
-    if (!scriptResult.error &&
-        !normalized?.runEvaluations.length &&
-        !normalized?.itemResults.length) {
-        lines.push("_No evaluations or items were returned._");
-        lines.push("");
-    }
-    lines.push("</details>");
-    lines.push(end);
-    return `${lines.join("\n").trimEnd()}\n`;
-}
-// ---------------------------------------------------------------------------
-// Comment body assembly
-// ---------------------------------------------------------------------------
-// Brand icon from https://langfuse.com/brand. Inline in the H1 gives the
-// comment a recognizable signature without dominating the layout.
-const LANGFUSE_ICON = "https://langfuse.com/brand-assets/icon/color/langfuse-icon.png";
-/**
- * The top-level `# …` title of the comment. Shown once per run, preserved
- * across upserts.
- */
-function renderCommentTitle(opts = {}) {
-    // `align="center"` is what actually works on GitHub comments; their
-    // markdown sanitizer drops inline `style`/CSS, but keeps the legacy
-    // `align` attribute. See
-    // https://github.com/orgs/community/discussions/183876
-    const icon = `<img src="${LANGFUSE_ICON}" height="32" alt="" align="center" />`;
-    const parts = [];
-    if (opts.shortSha)
-        parts.push(`\`${opts.shortSha}\``);
-    if (opts.runAttempt && opts.runAttempt > 1)
-        parts.push(`(#${opts.runAttempt})`);
-    const suffix = parts.length > 0 ? `: ${parts.join(" ")}` : "";
-    return `### ${icon} Experiment Results${suffix}`;
-}
-function buildFreshCommentBody(runId, titleOpts, sections) {
-    const body = [runMarker(runId), renderCommentTitle(titleOpts), ...sections].join("\n\n");
-    return refreshOverview(`${body.trimEnd()}\n`);
-}
-function refreshCommentTitle(body, titleOpts) {
-    const title = renderCommentTitle(titleOpts);
-    const lines = body.split("\n");
-    const titleIdx = lines.findIndex((line) => line.startsWith(`### <img src="${LANGFUSE_ICON}"`));
-    if (titleIdx !== -1) {
-        lines[titleIdx] = title;
-        return lines.join("\n");
-    }
-    const markerIdx = lines.findIndex((line) => line.startsWith("<!-- langfuse-experiment-action run_id="));
-    if (markerIdx !== -1) {
-        lines.splice(markerIdx + 1, 0, "", title);
-        return lines.join("\n");
-    }
-    return `${title}\n\n${body.replace(/^\s+/, "")}`;
-}
-/**
- * Replace an existing section keyed on `(scriptPath, jobKey)` in place, or
- * append it to the end of the body if none exists.
- */
-function upsertSection(existingBody, scriptPath, jobKey, section) {
-    const { start, end } = sectionMarkers(scriptPath, jobKey);
-    const updated = replaceMarkedBlock(existingBody, start, end, section);
-    if (updated !== existingBody)
-        return updated;
-    return `${existingBody.replace(/\s+$/, "")}\n\n${section}\n`;
-}
 /**
  * Bound on the merge-verify-retry loop below. Each retry only fires when a
  * concurrent job clobbered our write, so in practice one or two attempts
  * suffice even for large matrices.
  */
 const MAX_UPSERT_ATTEMPTS = 5;
+/**
+ * Delay before the verify read. Long enough that a racing writer's update
+ * (a read-modify-write round trip against the GitHub API is typically a
+ * few hundred ms) usually lands before we re-read; jittered so retrying
+ * jobs desynchronize instead of clobbering each other in lockstep.
+ */
+const VERIFY_DELAY_BASE_MS = 300;
+const VERIFY_DELAY_JITTER_MS = 600;
 /** GitHub may serve comment bodies with CRLF; we always write LF. */
 function normalizeLineEndings(s) {
     return s.replace(/\r\n/g, "\n");
@@ -39265,14 +39309,15 @@ async function findCanonicalComment(octokit, repo, issueNumber, marker) {
  * instead of atomic: every writer merges into the canonical comment
  * (preserving other jobs' sections), then verifies its own sections
  * survived and retries the merge if a concurrent writer clobbered them.
- * A job that loses a creation race deletes its duplicate after merging.
+ * A job that loses a creation race deletes its duplicate — but only after
+ * its sections are verified inside the canonical comment, so a job killed
+ * mid-loop leaves at worst a duplicate comment, never missing data.
  * Residual risk: a job killed mid-retry can still leave its sections
  * missing — hence the warning on exhaustion.
  */
 async function postPrComment(opts) {
     const { sections, token, runId, shortSha, runAttempt } = opts;
     const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-    const jitter = opts.jitter ?? Math.random;
     const ctx = github_context;
     const pr = ctx.payload.pull_request;
     if (!pr) {
@@ -39297,59 +39342,81 @@ async function postPrComment(opts) {
     try {
         let ourCreatedId = null;
         for (let attempt = 1; attempt <= MAX_UPSERT_ATTEMPTS; attempt++) {
-            const canonical = await findCanonicalComment(octokit, repo, pr.number, marker);
-            const titleOpts = { shortSha, runAttempt };
-            let body = canonical
-                ? refreshCommentTitle(canonical.body, titleOpts)
-                : buildFreshCommentBody(runId, titleOpts, []);
-            for (const { scriptPath, jobKey, markdown } of sections) {
-                body = upsertSection(body, scriptPath, jobKey, markdown);
-            }
-            body = refreshOverview(body);
-            if (canonical) {
-                await octokit.rest.issues.updateComment({ ...repo, comment_id: canonical.id, body });
-                if (ourCreatedId !== null && ourCreatedId !== canonical.id) {
-                    // We lost an earlier creation race. Our sections are now merged
-                    // into the canonical comment, so our duplicate is safe to drop.
+            try {
+                const canonical = await findCanonicalComment(octokit, repo, pr.number, marker);
+                const titleOpts = { shortSha, runAttempt };
+                if (canonical) {
+                    let body = refreshCommentTitle(canonical.body, titleOpts);
+                    for (const section of sections) {
+                        body = upsertSection(body, section, section.markdown);
+                    }
+                    body = refreshOverview(body);
+                    await octokit.rest.issues.updateComment({ ...repo, comment_id: canonical.id, body });
+                }
+                else if (ourCreatedId === null) {
+                    let body = buildFreshCommentBody(runId, titleOpts, []);
+                    for (const section of sections) {
+                        body = upsertSection(body, section, section.markdown);
+                    }
+                    body = refreshOverview(body);
+                    const created = await octokit.rest.issues.createComment({
+                        ...repo,
+                        issue_number: pr.number,
+                        body,
+                    });
+                    ourCreatedId = created.data.id;
+                }
+                // Else: we already created a comment but the listing doesn't show
+                // it yet (read lag). Creating again would just spawn another
+                // duplicate — wait for the verify read below instead.
+                await sleep(VERIFY_DELAY_BASE_MS + Math.random() * VERIFY_DELAY_JITTER_MS);
+                const verified = await findCanonicalComment(octokit, repo, pr.number, marker);
+                // Compare full section content, not just the markers: a stale
+                // concurrent write can carry an *older* version of our section (same
+                // markers, outdated body), e.g. when re-running a leg. Sections land
+                // in the body verbatim modulo trailing-whitespace collapsing, so a
+                // substring check on the trimmed markdown is exact.
+                const verifiedBody = normalizeLineEndings(verified?.body ?? "");
+                const contentOk = verified !== null &&
+                    sections.every(({ markdown }) => verifiedBody.includes(normalizeLineEndings(markdown).trimEnd()));
+                if (!contentOk) {
+                    core_debug(`PR comment write was clobbered by a concurrent job (attempt ${attempt}).`);
+                    continue;
+                }
+                if (ourCreatedId !== null && verified.id !== ourCreatedId) {
+                    // We lost a creation race, and our sections are now *verified*
+                    // inside the canonical comment — only now is our duplicate safe
+                    // to drop. Deleting before the verify could lose data: had the
+                    // merge been clobbered and this job killed, the duplicate would
+                    // have been the only surviving copy of our sections.
                     try {
                         await octokit.rest.issues.deleteComment({ ...repo, comment_id: ourCreatedId });
                         ourCreatedId = null;
                     }
                     catch (deleteErr) {
-                        // Keep the id on failure (except 404 = already gone) so the
-                        // verify below fails and the next attempt retries the delete
-                        // instead of declaring convergence over an orphan duplicate.
-                        if (errorStatus(deleteErr) === 404)
+                        if (errorStatus(deleteErr) === 404) {
                             ourCreatedId = null;
-                        else
+                        }
+                        else {
+                            // Retry the delete on the next attempt rather than leaving
+                            // an orphan duplicate behind.
                             core_debug(`Failed to delete duplicate comment: ${errorMessage(deleteErr)}`);
+                            continue;
+                        }
                     }
                 }
-            }
-            else {
-                const created = await octokit.rest.issues.createComment({
-                    ...repo,
-                    issue_number: pr.number,
-                    body,
-                });
-                ourCreatedId = created.data.id;
-            }
-            await sleep(300 + jitter() * 600);
-            const verified = await findCanonicalComment(octokit, repo, pr.number, marker);
-            // Compare full section content, not just the markers: a stale
-            // concurrent write can carry an *older* version of our section (same
-            // markers, outdated body), e.g. when re-running a leg. Sections land
-            // in the body verbatim modulo trailing-whitespace collapsing, so a
-            // substring check on the trimmed markdown is exact.
-            const verifiedBody = normalizeLineEndings(verified?.body ?? "");
-            const converged = verified !== null &&
-                (ourCreatedId === null || ourCreatedId === verified.id) &&
-                sections.every(({ markdown }) => verifiedBody.includes(normalizeLineEndings(markdown).trimEnd()));
-            if (converged) {
                 info(`Upserted run ${runId} comment ${verified.id} on PR #${pr.number}.`);
                 return;
             }
-            core_debug(`PR comment write was clobbered by a concurrent job (attempt ${attempt}).`);
+            catch (attemptErr) {
+                // A transient API failure (5xx, timeout) shouldn't abort the
+                // remaining attempts — riding out flaky moments is the point of
+                // the loop. Permission errors can't heal on retry; rethrow so the
+                // outer handler prints the actionable hint.
+                if (errorStatus(attemptErr) === 403)
+                    throw attemptErr;
+                core_debug(`PR comment attempt ${attempt} failed (${errorMessage(attemptErr)}); retrying.`);
+            }
         }
         warning(`PR comment for run ${runId} may be incomplete: concurrent jobs kept racing on the ` +
             `shared comment for ${MAX_UPSERT_ATTEMPTS} attempts. Re-run this job to refresh it.`);
@@ -39380,9 +39447,14 @@ async function publishExperimentComment(opts) {
     // Without it (no `actions: read`) fall back to the YAML job key, which
     // still separates different jobs — just not legs of the same matrix.
     const jobKey = jobInfo?.name ?? env.GITHUB_JOB ?? "";
-    // Surface the job name in section summaries only when it adds signal
-    // (matrix legs / renamed jobs); plain jobs keep today's rendering.
-    const jobLabel = jobInfo?.name && jobInfo.name !== env.GITHUB_JOB ? jobInfo.name : undefined;
+    // Surface the job name in section summaries only for matrix legs, whose
+    // display name is "<job key> (<matrix values>)" — the one shape where the
+    // experiment name alone can't tell sections apart. Renamed non-matrix
+    // jobs keep today's rendering (their name adds no signal, and changing it
+    // would alter existing consumers' comments on upgrade).
+    const jobLabel = jobInfo?.name && env.GITHUB_JOB && jobInfo.name.startsWith(`${env.GITHUB_JOB} (`)
+        ? jobInfo.name
+        : undefined;
     const sections = results.map((result) => ({
         scriptPath: result.scriptPath,
         jobKey,
@@ -39404,6 +39476,10 @@ async function publishExperimentComment(opts) {
         runAttempt: Number.isFinite(runAttempt) ? runAttempt : 1,
     });
 }
+
+;// CONCATENATED MODULE: ./src/comment/index.ts
+
+
 
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/@actions+glob@0.7.0/node_modules/@actions/glob/lib/internal-glob-options-helper.js
 
@@ -43193,7 +43269,7 @@ async function setupExperimentScripts(discovered, options) {
     });
 }
 
-;// CONCATENATED MODULE: ./src/github/job-url.ts
+;// CONCATENATED MODULE: ./src/github/job-info.ts
 
 
 
@@ -43235,13 +43311,27 @@ async function resolveJobInfo(params) {
             per_page: 100,
         });
         if (runnerName) {
-            // Prefer in-progress jobs: hosted-runner names aren't guaranteed
-            // unique across a run's full job history, but only one job runs on a
-            // given runner at a time.
             const candidates = jobs.filter((j) => j.runner_name === runnerName);
-            const match = candidates.find((j) => j.status === "in_progress") ?? candidates[0];
-            if (match)
-                return { htmlUrl: match.html_url, name: match.name };
+            if (candidates.length === 1) {
+                return { htmlUrl: candidates[0].html_url, name: candidates[0].name };
+            }
+            if (candidates.length > 1) {
+                // Runner names repeat when self-hosted runners share a name or a
+                // runner already served earlier jobs of this attempt. Only one job
+                // runs on a runner at a time, so a single in-progress candidate is
+                // unambiguously us. Anything else: give up rather than guess — a
+                // wrong pick could hand two matrix legs the same display name and
+                // silently collapse their comment sections onto one key.
+                const running = candidates.filter((j) => j.status === "in_progress");
+                if (running.length === 1) {
+                    return { htmlUrl: running[0].html_url, name: running[0].name };
+                }
+                warning(`Could not disambiguate ${candidates.length} jobs on runner "${runnerName}" ` +
+                    `(${running.length} in progress). Falling back to the workflow-run URL.`);
+                return null;
+            }
+            // No candidate for our runner name (listing lag) — fall through to
+            // the single-in-progress heuristic below.
         }
         // Fallback for the rare case where RUNNER_NAME is empty (some
         // self-hosted setups): a single in-progress job is unambiguously us.

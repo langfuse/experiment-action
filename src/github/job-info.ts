@@ -59,12 +59,29 @@ export async function resolveJobInfo(params: {
     });
 
     if (runnerName) {
-      // Prefer in-progress jobs: hosted-runner names aren't guaranteed
-      // unique across a run's full job history, but only one job runs on a
-      // given runner at a time.
       const candidates = jobs.filter((j) => j.runner_name === runnerName);
-      const match = candidates.find((j) => j.status === "in_progress") ?? candidates[0];
-      if (match) return { htmlUrl: match.html_url, name: match.name };
+      if (candidates.length === 1) {
+        return { htmlUrl: candidates[0].html_url, name: candidates[0].name };
+      }
+      if (candidates.length > 1) {
+        // Runner names repeat when self-hosted runners share a name or a
+        // runner already served earlier jobs of this attempt. Only one job
+        // runs on a runner at a time, so a single in-progress candidate is
+        // unambiguously us. Anything else: give up rather than guess — a
+        // wrong pick could hand two matrix legs the same display name and
+        // silently collapse their comment sections onto one key.
+        const running = candidates.filter((j) => j.status === "in_progress");
+        if (running.length === 1) {
+          return { htmlUrl: running[0].html_url, name: running[0].name };
+        }
+        core.warning(
+          `Could not disambiguate ${candidates.length} jobs on runner "${runnerName}" ` +
+            `(${running.length} in progress). Falling back to the workflow-run URL.`,
+        );
+        return null;
+      }
+      // No candidate for our runner name (listing lag) — fall through to
+      // the single-in-progress heuristic below.
     }
 
     // Fallback for the rare case where RUNNER_NAME is empty (some
