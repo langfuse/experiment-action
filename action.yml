@@ -60,11 +60,12 @@ inputs:
   github_token:
     description: >-
       Workflow GitHub token. Used to (1) post the PR comment — needs
-      `pull-requests: write`, and (2) resolve the current job URL via
-      the REST API so the comment links to this specific job — needs
-      `actions: read`, otherwise falls back to the workflow-run URL.
-      Leave blank to skip the PR comment and the job-URL lookup. See
-      the README for a usage example.
+      `pull-requests: write`, and (2) resolve the current job via the
+      REST API so the comment links to this specific job and parallel
+      matrix legs get their own comment sections — needs
+      `actions: read`, otherwise falls back to the workflow-run URL
+      and the job key from `$GITHUB_JOB`. Leave blank to skip the PR
+      comment and the job lookup. See the README for a usage example.
     required: false
     default: ""
 

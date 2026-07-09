@@ -9,7 +9,8 @@ import {
   type NormalizedExperimentResult,
 } from "@/experiment-result";
 import { errorMessage, errorStatus } from "@/github/errors";
-import { makeOctokit } from "@/github/octokit";
+import type { JobInfo } from "@/github/job-url";
+import { makeOctokit, type Octokit } from "@/github/octokit";
 import { buildDatasetItemUrl } from "@/langfuse/project";
 
 import { buildScriptBlobUrl, buildWorkflowRunUrl } from "./metadata";
@@ -18,6 +19,17 @@ import type { ResolvedInputs, ScriptError, ScriptResult } from "./types";
 export interface RenderScriptSectionOptions {
   /** The script to render. */
   result: ScriptResult;
+  /**
+   * Per-job identity mixed into the section markers so parallel matrix legs
+   * running the same script get distinct sections. Defaults to `""`.
+   */
+  jobKey?: string;
+  /**
+   * Human-readable job name appended to the section summary. Only set for
+   * matrix legs / renamed jobs, where the experiment name alone can't tell
+   * sections apart.
+   */
+  jobLabel?: string;
   /** Optional link to the CI run this section belongs to. */
   runUrl?: string;
   /** Optional link to this script at the exact tested Git SHA. */
@@ -38,15 +50,22 @@ function runMarker(runId: string): string {
 }
 
 /**
- * Delimiters wrapping one script's section inside the run comment. We key
- * the marker on the script *path* (encoded) so two scripts whose SDK
- * experiment names happen to collide still get separate sections.
+ * Delimiters wrapping one invocation's section inside the run comment. We
+ * key the marker on the script *path* (so two scripts whose SDK experiment
+ * names collide still get separate sections) *and* the job key (so parallel
+ * matrix legs running the same script don't overwrite each other — the job
+ * display name is the only per-leg identity GitHub gives us).
+ *
+ * The trailing space on `start` is load-bearing: markers are matched by
+ * `indexOf` prefix, and the space terminates the job key so `job=a` can
+ * never match `job=ab` (`encodeURIComponent` never emits a space).
  */
-function sectionMarkers(scriptPath: string): { start: string; end: string } {
-  const key = encodeURIComponent(scriptPath);
+function sectionMarkers(scriptPath: string, jobKey: string): { start: string; end: string } {
+  const script = encodeURIComponent(scriptPath);
+  const job = encodeURIComponent(jobKey);
   return {
-    start: `<!-- langfuse-experiment-action:start script=${key}`,
-    end: `<!-- langfuse-experiment-action:end script=${key} -->`,
+    start: `<!-- langfuse-experiment-action:start script=${script} job=${job} `,
+    end: `<!-- langfuse-experiment-action:end script=${script} job=${job} -->`,
   };
 }
 
@@ -124,6 +143,8 @@ function statusSummary(err: ScriptError | null): { icon: string; status: string 
 
 interface ParsedSectionOverview {
   scriptPath: string;
+  /** Decoded job key; `undefined` for sections written by pre-job-key versions. */
+  jobKey?: string;
   displayName: string;
   scriptLabel: string;
   status: string;
@@ -158,11 +179,12 @@ function renderActionMetadata(
 
 function renderSectionStartMarker(
   scriptPath: string,
+  jobKey: string,
   opts: { runUrl?: string; langfuseUrl?: string; localDataset?: boolean } = {},
 ): string {
-  const { start } = sectionMarkers(scriptPath);
+  const { start } = sectionMarkers(scriptPath, jobKey);
   const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl, opts.localDataset);
-  return `${start}${attrs ? ` ${attrs}` : ""} -->`;
+  return `${start}${attrs ? `${attrs} ` : ""}-->`;
 }
 
 function parseActionAttributes(raw?: string): {
@@ -191,16 +213,25 @@ function parseActionAttributes(raw?: string): {
 }
 
 function renderOverviewTable(metas: ParsedSectionOverview[]): string {
-  const duplicates = new Map<string, number>();
+  const byDisplayName = new Map<string, ParsedSectionOverview[]>();
   for (const meta of metas) {
-    duplicates.set(meta.displayName, (duplicates.get(meta.displayName) ?? 0) + 1);
+    const group = byDisplayName.get(meta.displayName) ?? [];
+    group.push(meta);
+    byDisplayName.set(meta.displayName, group);
   }
 
   const rows = metas.map((meta) => {
-    const experiment =
-      (duplicates.get(meta.displayName) ?? 0) > 1
-        ? `${cell(meta.displayName, 48)} (\`${cell(meta.scriptLabel, 32)}\`)`
-        : cell(meta.displayName, 56);
+    const group = byDisplayName.get(meta.displayName) ?? [];
+    let experiment = cell(meta.displayName, 56);
+    if (group.length > 1) {
+      // Colliding display names usually mean matrix legs sharing a script —
+      // the job name is what tells them apart. Fall back to the script label
+      // when job keys don't disambiguate (distinct scripts, same name).
+      const jobKeys = new Set(group.map((m) => m.jobKey ?? ""));
+      const disambiguator =
+        meta.jobKey && jobKeys.size === group.length ? meta.jobKey : meta.scriptLabel;
+      experiment = `${cell(meta.displayName, 48)} (\`${cell(disambiguator, 32)}\`)`;
+    }
 
     return [
       experiment,
@@ -228,7 +259,10 @@ function replaceMarkedBlock(body: string, start: string, end: string, replacemen
 
 function parseSectionOverview(body: string): ParsedSectionOverview[] {
   const sections: ParsedSectionOverview[] = [];
-  const regex = /<!-- langfuse-experiment-action:start script=([^ >]+)([^>]*)-->/g;
+  // `job=` is optional so sections written by pre-job-key action versions
+  // (possible when one run mixes action versions across jobs) still parse.
+  const regex =
+    /<!-- langfuse-experiment-action:start script=([^ >]+)(?: job=([^ >]*))?([^>]*)-->/g;
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(body)) !== null) {
@@ -236,7 +270,13 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
     if (!encodedScriptPath) continue;
 
     const scriptPath = decodeURIComponent(encodedScriptPath);
-    const { end } = sectionMarkers(scriptPath);
+    const encodedJobKey = match[2];
+    // Reconstruct the end marker in the same format the section was written
+    // in — from the *encoded* captures, so we match byte-for-byte.
+    const end =
+      encodedJobKey === undefined
+        ? `<!-- langfuse-experiment-action:end script=${encodedScriptPath} -->`
+        : `<!-- langfuse-experiment-action:end script=${encodedScriptPath} job=${encodedJobKey} -->`;
     const sectionStart = match.index;
     const sectionEnd = body.indexOf(end, sectionStart);
     if (sectionEnd === -1) continue;
@@ -258,7 +298,7 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
       : sectionBody.match(/^> \*\*.+:\*\*/m)
         ? "❌ Regression"
         : "✅ Pass";
-    const startAttrs = parseActionAttributes(match[2]?.trim());
+    const startAttrs = parseActionAttributes(match[3]?.trim());
     const legacyActionMeta = parseActionAttributes(
       sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1],
     );
@@ -268,6 +308,7 @@ function parseSectionOverview(body: string): ParsedSectionOverview[] {
 
     sections.push({
       scriptPath,
+      jobKey: encodedJobKey === undefined ? undefined : decodeURIComponent(encodedJobKey),
       displayName,
       scriptLabel: scriptLabelText,
       status,
@@ -425,8 +466,8 @@ function renderErrorCallout(err: ScriptError): string {
  * something recognisable.
  */
 export function renderScriptSection(opts: RenderScriptSectionOptions): string {
-  const { result: scriptResult, runUrl, scriptUrl } = opts;
-  const { end } = sectionMarkers(scriptResult.scriptPath);
+  const { result: scriptResult, jobKey = "", jobLabel, runUrl, scriptUrl } = opts;
+  const { end } = sectionMarkers(scriptResult.scriptPath, jobKey);
   const normalized = scriptResult.normalizedResult;
   const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
   const localDataset = Boolean(normalized && !normalized.datasetRunId);
@@ -436,10 +477,14 @@ export function renderScriptSection(opts: RenderScriptSectionOptions): string {
   const { icon } = statusSummary(scriptResult.error);
   const summary = renderSectionSummary({
     icon,
-    displayName,
+    displayName: jobLabel ? `${displayName} — ${jobLabel}` : displayName,
   });
   const lines: string[] = [
-    renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl, localDataset }),
+    renderSectionStartMarker(scriptResult.scriptPath, jobKey, {
+      runUrl,
+      langfuseUrl,
+      localDataset,
+    }),
     failed
       ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
       : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
@@ -557,11 +602,16 @@ export function refreshCommentTitle(body: string, titleOpts: CommentTitleOptions
 }
 
 /**
- * Replace an existing section keyed on `scriptPath` in place, or append it
- * to the end of the body if none exists.
+ * Replace an existing section keyed on `(scriptPath, jobKey)` in place, or
+ * append it to the end of the body if none exists.
  */
-export function upsertSection(existingBody: string, scriptPath: string, section: string): string {
-  const { start, end } = sectionMarkers(scriptPath);
+export function upsertSection(
+  existingBody: string,
+  scriptPath: string,
+  jobKey: string,
+  section: string,
+): string {
+  const { start, end } = sectionMarkers(scriptPath, jobKey);
   const updated = replaceMarkedBlock(existingBody, start, end, section);
   if (updated !== existingBody) return updated;
   return `${existingBody.replace(/\s+$/, "")}\n\n${section}\n`;
@@ -572,13 +622,46 @@ export function upsertSection(existingBody: string, scriptPath: string, section:
 // ---------------------------------------------------------------------------
 
 export interface PostPrCommentOptions {
-  /** One entry per script being reported. */
-  sections: Array<{ scriptPath: string; markdown: string }>;
+  /** One entry per script being reported, all from the same job. */
+  sections: Array<{ scriptPath: string; jobKey: string; markdown: string }>;
   token: string;
   runId: string;
   /** Used in the top-level title on the first invocation in a run. */
   shortSha?: string;
   runAttempt?: number;
+  /** Override in tests to avoid real waiting. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Override in tests for deterministic jitter. Returns [0, 1). */
+  jitter?: () => number;
+}
+
+/**
+ * Bound on the merge-verify-retry loop below. Each retry only fires when a
+ * concurrent job clobbered our write, so in practice one or two attempts
+ * suffice even for large matrices.
+ */
+const MAX_UPSERT_ATTEMPTS = 5;
+
+/**
+ * The comment all racing jobs converge on: the *oldest* (lowest-id) comment
+ * carrying the run marker. Lowest-id is a deterministic tiebreak every job
+ * agrees on when a creation race produced duplicates.
+ */
+async function findCanonicalComment(
+  octokit: Octokit,
+  repo: { owner: string; repo: string },
+  issueNumber: number,
+  marker: string,
+): Promise<{ id: number; body: string } | null> {
+  const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+    ...repo,
+    issue_number: issueNumber,
+    per_page: 100,
+  });
+  const candidates = comments.filter((c) => typeof c.body === "string" && c.body.includes(marker));
+  if (candidates.length === 0) return null;
+  const oldest = candidates.reduce((a, b) => (a.id <= b.id ? a : b));
+  return { id: oldest.id, body: oldest.body ?? "" };
 }
 
 /**
@@ -587,15 +670,26 @@ export interface PostPrCommentOptions {
  *   - If no comment exists yet for `runId`, create one carrying the title
  *     and all provided sections.
  *   - If a comment exists, splice each section into the existing body
- *     (replace-in-place for scripts whose paths we've rendered before in
+ *     (replace-in-place for `(script, job)` keys we've rendered before in
  *     this run, append otherwise), then update the comment in one API
  *     call.
  *
  * Different `runId`s always get fresh comments so users see evolution
  * across commits and re-pushes.
+ *
+ * Parallel jobs (e.g. matrix legs) race on this shared comment and GitHub
+ * offers no compare-and-swap for comments, so the upsert is *convergent*
+ * instead of atomic: every writer merges into the canonical comment
+ * (preserving other jobs' sections), then verifies its own sections
+ * survived and retries the merge if a concurrent writer clobbered them.
+ * A job that loses a creation race deletes its duplicate after merging.
+ * Residual risk: a job killed mid-retry can still leave its sections
+ * missing — hence the warning on exhaustion.
  */
 export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
   const { sections, token, runId, shortSha, runAttempt } = opts;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const jitter = opts.jitter ?? Math.random;
 
   const ctx = github.context;
   const pr = ctx.payload.pull_request;
@@ -618,48 +712,66 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
 
   const octokit = makeOctokit(token);
   const marker = runMarker(runId);
+  const repo = { owner: ctx.repo.owner, repo: ctx.repo.repo };
 
   core.debug(`PR comment run marker: ${marker}`);
   core.debug(`Upserting ${sections.length} section(s).`);
 
   try {
-    const existing = await octokit.paginate(octokit.rest.issues.listComments, {
-      owner: ctx.repo.owner,
-      repo: ctx.repo.repo,
-      issue_number: pr.number,
-      per_page: 100,
-    });
-    const match = existing.find((c) => typeof c.body === "string" && c.body.includes(marker));
+    let ourCreatedId: number | null = null;
 
-    const titleOpts = { shortSha, runAttempt };
-    let body: string;
-    if (match) {
-      body = refreshCommentTitle(match.body ?? marker, titleOpts);
-    } else {
-      body = buildFreshCommentBody(runId, titleOpts, []);
-    }
-    for (const { scriptPath, markdown } of sections) {
-      body = upsertSection(body, scriptPath, markdown);
-    }
-    body = refreshOverview(body);
+    for (let attempt = 1; attempt <= MAX_UPSERT_ATTEMPTS; attempt++) {
+      const canonical = await findCanonicalComment(octokit, repo, pr.number, marker);
 
-    if (match) {
-      await octokit.rest.issues.updateComment({
-        owner: ctx.repo.owner,
-        repo: ctx.repo.repo,
-        comment_id: match.id,
-        body,
-      });
-      core.info(`Updated run ${runId} comment ${match.id} on PR #${pr.number}.`);
-    } else {
-      await octokit.rest.issues.createComment({
-        owner: ctx.repo.owner,
-        repo: ctx.repo.repo,
-        issue_number: pr.number,
-        body,
-      });
-      core.info(`Posted run ${runId} comment on PR #${pr.number}.`);
+      const titleOpts = { shortSha, runAttempt };
+      let body = canonical
+        ? refreshCommentTitle(canonical.body, titleOpts)
+        : buildFreshCommentBody(runId, titleOpts, []);
+      for (const { scriptPath, jobKey, markdown } of sections) {
+        body = upsertSection(body, scriptPath, jobKey, markdown);
+      }
+      body = refreshOverview(body);
+
+      if (canonical) {
+        await octokit.rest.issues.updateComment({ ...repo, comment_id: canonical.id, body });
+        if (ourCreatedId !== null && ourCreatedId !== canonical.id) {
+          // We lost an earlier creation race. Our sections are now merged
+          // into the canonical comment, so our duplicate is safe to drop.
+          try {
+            await octokit.rest.issues.deleteComment({ ...repo, comment_id: ourCreatedId });
+          } catch (deleteErr) {
+            core.debug(`Failed to delete duplicate comment: ${errorMessage(deleteErr)}`);
+          }
+          ourCreatedId = null;
+        }
+      } else {
+        const created = await octokit.rest.issues.createComment({
+          ...repo,
+          issue_number: pr.number,
+          body,
+        });
+        ourCreatedId = created.data.id;
+      }
+
+      await sleep(300 + jitter() * 600);
+      const verified = await findCanonicalComment(octokit, repo, pr.number, marker);
+      const converged =
+        verified !== null &&
+        (ourCreatedId === null || ourCreatedId === verified.id) &&
+        sections.every(({ scriptPath, jobKey }) =>
+          verified.body.includes(sectionMarkers(scriptPath, jobKey).start),
+        );
+      if (converged) {
+        core.info(`Upserted run ${runId} comment ${verified.id} on PR #${pr.number}.`);
+        return;
+      }
+      core.debug(`PR comment write was clobbered by a concurrent job (attempt ${attempt}).`);
     }
+
+    core.warning(
+      `PR comment for run ${runId} may be incomplete: concurrent jobs kept racing on the ` +
+        `shared comment for ${MAX_UPSERT_ATTEMPTS} attempts. Re-run this job to refresh it.`,
+    );
   } catch (err) {
     const status = errorStatus(err);
     const msg = errorMessage(err);
@@ -682,8 +794,8 @@ export async function postPrComment(opts: PostPrCommentOptions): Promise<void> {
 export interface PublishExperimentCommentOptions {
   inputs: ResolvedInputs;
   results: ScriptResult[];
-  /** The final resolved metadata set — we read `langfuse.github_job_url` from it. */
-  metadata: Record<string, string>;
+  /** Resolved once in `main.ts`; `null` when the lookup failed or was skipped. */
+  jobInfo?: JobInfo | null;
   /** Override `process.env` in tests. */
   env?: NodeJS.ProcessEnv;
 }
@@ -697,19 +809,28 @@ export interface PublishExperimentCommentOptions {
 export async function publishExperimentComment(
   opts: PublishExperimentCommentOptions,
 ): Promise<void> {
-  const { inputs, results, metadata } = opts;
+  const { inputs, results, jobInfo } = opts;
   const env = opts.env ?? process.env;
 
-  // Prefer the job URL (set by the metadata resolver when the API call
-  // succeeded); fall back to the workflow-run URL so the comment still
-  // carries a link even when job-id resolution fails.
-  const jobUrl = metadata["langfuse.github_job_url"];
-  const runUrl = jobUrl ?? buildWorkflowRunUrl(env) ?? undefined;
+  // Fall back to the workflow-run URL so the comment still carries a link
+  // even when job resolution failed (e.g. no `actions: read`).
+  const runUrl = jobInfo?.htmlUrl ?? buildWorkflowRunUrl(env) ?? undefined;
+
+  // The job display name is the only per-leg identity for matrix jobs.
+  // Without it (no `actions: read`) fall back to the YAML job key, which
+  // still separates different jobs — just not legs of the same matrix.
+  const jobKey = jobInfo?.name ?? env.GITHUB_JOB ?? "";
+  // Surface the job name in section summaries only when it adds signal
+  // (matrix legs / renamed jobs); plain jobs keep today's rendering.
+  const jobLabel = jobInfo?.name && jobInfo.name !== env.GITHUB_JOB ? jobInfo.name : undefined;
 
   const sections = results.map((result) => ({
     scriptPath: result.scriptPath,
+    jobKey,
     markdown: renderScriptSection({
       result,
+      jobKey,
+      jobLabel,
       runUrl,
       scriptUrl: buildScriptBlobUrl(result.scriptPath, env) ?? undefined,
     }),

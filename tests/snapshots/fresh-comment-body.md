@@ -12,7 +12,7 @@
 **Details**
 <!-- langfuse-experiment-action:details:end -->
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py local_dataset=true -->
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Fexperiment.py job= local_dataset=true -->
 <details><summary>✅ Uppercase task</summary>
 
 <br>
@@ -31,4 +31,4 @@
 </details>
 
 </details>
-<!-- langfuse-experiment-action:end script=%2Ftmp%2Fexperiment.py -->
+<!-- langfuse-experiment-action:end script=%2Ftmp%2Fexperiment.py job= -->

@@ -1,5 +1,3 @@
-import { resolveJobUrl } from "@/github/job-url";
-
 /**
  * Namespace prepended to every default metadata key. Makes action-generated
  * metadata unambiguous alongside whatever the user adds via
@@ -8,8 +6,8 @@ import { resolveJobUrl } from "@/github/job-url";
 const METADATA_PREFIX = "langfuse.";
 
 export interface ResolveMetadataOptions {
-  /** GitHub token used to resolve the job URL. Omit to skip that lookup. */
-  token?: string;
+  /** Job URL resolved via the GitHub API (see `resolveJobInfo`). Omit to skip the entry. */
+  jobUrl?: string | null;
   /** User-supplied metadata, merged on top of the defaults. */
   custom?: Record<string, string>;
   /** Override `process.env` in tests. */
@@ -18,7 +16,7 @@ export interface ResolveMetadataOptions {
 
 type MetadataResolver = (
   env: NodeJS.ProcessEnv,
-  opts: { token?: string },
+  opts: { jobUrl?: string | null },
 ) => string | null | Promise<string | null>;
 
 /**
@@ -39,7 +37,7 @@ const DEFAULT_METADATA: Record<string, MetadataResolver> = {
   // cases in one entry.
   actor: (env) => env.GITHUB_TRIGGERING_ACTOR ?? env.GITHUB_ACTOR ?? null,
   pr_url: resolvePrUrl,
-  github_job_url: resolveJobUrlMetadata,
+  github_job_url: (_env, opts) => opts.jobUrl ?? null,
 };
 
 /**
@@ -48,14 +46,13 @@ const DEFAULT_METADATA: Record<string, MetadataResolver> = {
  * + user-supplied `custom` metadata layered on top.
  *
  * Custom entries win on key collisions so authors can override anything the
- * action would emit automatically. Omit `token` to skip the job-URL lookup
- * (useful in tests).
+ * action would emit automatically.
  */
 export async function resolveDefaultMetadata(
   options: ResolveMetadataOptions = {},
 ): Promise<Record<string, string>> {
   const env = options.env ?? process.env;
-  const opts = { token: options.token };
+  const opts = { jobUrl: options.jobUrl };
 
   const resolved = await Promise.all(
     Object.entries(DEFAULT_METADATA).map(
@@ -123,19 +120,6 @@ function resolvePrUrl(env: NodeJS.ProcessEnv): string | null {
   if (!repo) return null;
   const server = env.GITHUB_SERVER_URL ?? "https://github.com";
   return `${server}/${repo}/pull/${prMatch[1]}`;
-}
-
-async function resolveJobUrlMetadata(
-  env: NodeJS.ProcessEnv,
-  opts: { token?: string },
-): Promise<string | null> {
-  if (!opts.token) return null;
-  return resolveJobUrl({
-    token: opts.token,
-    runId: env.GITHUB_RUN_ID ?? "",
-    runAttempt: env.GITHUB_RUN_ATTEMPT ?? "1",
-    runnerName: env.RUNNER_NAME,
-  });
 }
 
 function normalizeRepoPath(scriptPath: string, workspace: string): string | null {

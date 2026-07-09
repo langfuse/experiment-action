@@ -268,12 +268,142 @@ jobs:
         if: always()
         run: pnpm run dev:down
 
+  # Regression test for the matrix comment collision
+  # (https://github.com/langfuse/langfuse/issues/14907): two parallel legs run
+  # the SAME experiment script; both sections must land in one shared PR
+  # comment. The (script, job) section keying is asserted deterministically by
+  # the follow-up job; the concurrent-upsert path is exercised whenever the
+  # legs actually overlap.
+  #
+  # No `name:` on purpose — the action keys comment sections on the job
+  # *display name*, and GitHub only appends matrix values to it (here:
+  # "e2e-matrix (alpha)") when the name is derived from the job key.
+  e2e-matrix:
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck-test, check-dist, check-schema]
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [alpha, beta]
+    permissions:
+      contents: read
+      pull-requests: write
+      # Lets the action resolve the job display name that tells matrix legs
+      # apart in the PR comment (and link "View run" to the specific job).
+      actions: read
+    env:
+      LANGFUSE_BASE_URL: http://localhost:3000
+      LANGFUSE_PUBLIC_KEY: pk-lf-1234567890
+      LANGFUSE_SECRET_KEY: sk-lf-1234567890
+      E2E_DATASET_NAME: experiment-action-e2e-matrix-${{ github.run_id }}
+      COMMENT_ON_PR: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          run_install: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          package-manager-cache: false
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - name: Start Langfuse server
+        run: pnpm run dev:up
+      - name: Wait for Langfuse to be healthy
+        run: pnpm run dev:wait
+      - name: Install Python SDK for dataset setup
+        run: python -m pip install --disable-pip-version-check --quiet langfuse
+      - name: Create E2E dataset
+        env:
+          DATASET_NAME: ${{ env.E2E_DATASET_NAME }}
+        run: |
+          python <<'PY'
+          from langfuse import Langfuse
+          import os
+
+          client = Langfuse(
+              public_key=os.environ["LANGFUSE_PUBLIC_KEY"],
+              secret_key=os.environ["LANGFUSE_SECRET_KEY"],
+              host=os.environ["LANGFUSE_BASE_URL"],
+          )
+          dataset_name = os.environ["DATASET_NAME"]
+          client.create_dataset(
+              name=dataset_name,
+              description="experiment-action matrix e2e dataset",
+          )
+          for item in [
+              {"input": "hello", "expected_output": "HELLO"},
+              {"input": "world", "expected_output": "WORLD"},
+          ]:
+              client.create_dataset_item(
+                  dataset_name=dataset_name,
+                  input=item["input"],
+                  expected_output=item["expected_output"],
+              )
+          client.flush()
+          PY
+      - name: Run action — same experiment_path on every leg
+        id: leg
+        uses: ./
+        with:
+          experiment_path: tests/fixtures/e2e/experiment.ts
+          langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
+          langfuse_secret_key: ${{ env.LANGFUSE_SECRET_KEY }}
+          langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
+          dataset_name: ${{ env.E2E_DATASET_NAME }}
+          github_token: ${{ github.token }}
+          should_comment_on_pr: ${{ env.COMMENT_ON_PR }}
+      - name: Assert leg passed
+        env:
+          FAILED: ${{ steps.leg.outputs.failed }}
+        run: test "$FAILED" = "false"
+      - name: Tear down Langfuse
+        if: always()
+        run: pnpm run dev:down
+
+  # Comments only post on pull_request events, so the assertion is skipped on
+  # pushes to main (same guard as COMMENT_ON_PR above).
+  e2e-matrix-comment:
+    name: E2E — matrix legs share one PR comment
+    runs-on: ubuntu-latest
+    needs: [e2e-matrix]
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Assert one comment carrying both legs' sections
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          marker="<!-- langfuse-experiment-action run_id=${RUN_ID} -->"
+          comments=$(gh api --paginate "/repos/${REPO}/issues/${PR_NUMBER}/comments" | jq -s 'add')
+
+          count=$(jq --arg m "$marker" '[.[] | select(.body | contains($m))] | length' <<<"$comments")
+          echo "Comments for run ${RUN_ID}: ${count}"
+          # Exactly one: the creation race converged and duplicates were deleted.
+          test "$count" = "1"
+
+          body=$(jq -r --arg m "$marker" '[.[] | select(.body | contains($m))][0].body' <<<"$comments")
+          # One section per leg, keyed on the job display name (URL-encoded).
+          grep -F 'job=e2e-matrix%20(alpha)' <<<"$body"
+          grep -F 'job=e2e-matrix%20(beta)' <<<"$body"
+
   # Single required-status-check target for branch protection. Gets the
   # green check if every upstream job passed (or was intentionally skipped).
   all-tests-passed:
     name: All tests passed
     runs-on: ubuntu-latest
-    needs: [lint-typecheck-test, check-dist, check-schema, e2e-langfuse]
+    needs:
+      [lint-typecheck-test, check-dist, check-schema, e2e-langfuse, e2e-matrix, e2e-matrix-comment]
     if: always()
     steps:
       - name: Succeed when no upstream failed

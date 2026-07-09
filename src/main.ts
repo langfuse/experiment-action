@@ -4,6 +4,7 @@ import { publishExperimentComment } from "./comment";
 import { discoverScripts } from "./discover";
 import { setupExperimentScripts } from "./executors";
 import { normalizeExperimentResult, resolveLangfuseExperimentUrl } from "./experiment-result";
+import { resolveJobInfo } from "./github/job-url";
 import { resolveInputs } from "./inputs";
 import { resolveProjectId } from "./langfuse/project";
 import { resolveDefaultMetadata } from "./metadata";
@@ -34,8 +35,19 @@ export async function run(): Promise<void> {
     shouldSkipSdkInstallation: inputs.shouldSkipSdkInstallation,
   });
 
+  // Resolved once and reused by both the metadata bag (job URL) and the PR
+  // comment (job display name — the per-leg identity for matrix jobs).
+  const jobInfo = inputs.githubToken
+    ? await resolveJobInfo({
+        token: inputs.githubToken,
+        runId: process.env.GITHUB_RUN_ID ?? "",
+        runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "1",
+        runnerName: process.env.RUNNER_NAME,
+      })
+    : null;
+
   const metadata = await resolveDefaultMetadata({
-    token: inputs.githubToken,
+    jobUrl: jobInfo?.htmlUrl,
     custom: inputs.customMetadata,
   });
   const langfuseProjectId =
@@ -90,7 +102,7 @@ export async function run(): Promise<void> {
   });
 
   if (inputs.shouldCommentOnPr) {
-    await publishExperimentComment({ inputs, results, metadata });
+    await publishExperimentComment({ inputs, results, jobInfo });
   }
 
   const shouldFailJob =

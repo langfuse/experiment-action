@@ -12,7 +12,7 @@
 **Details**
 <!-- langfuse-experiment-action:details:end -->
 
-<!-- langfuse-experiment-action:start script=%2Ftmp%2Freg.py run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 local_dataset=true -->
+<!-- langfuse-experiment-action:start script=%2Ftmp%2Freg.py job=evals run=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Factions%2Fruns%2F7%2Fjob%2F42 local_dataset=true -->
 <details open><summary>❌ Regression fixture (<a href="https://github.com/o/r/blob/abc1234/tmp/reg.py">Source</a>)</summary>
 
 > **RegressionError:** accuracy dropped to 0.5
@@ -32,4 +32,4 @@
 </details>
 
 </details>
-<!-- langfuse-experiment-action:end script=%2Ftmp%2Freg.py -->
+<!-- langfuse-experiment-action:end script=%2Ftmp%2Freg.py job=evals -->

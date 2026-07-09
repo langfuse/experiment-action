@@ -95,9 +95,24 @@ describe("resolveDefaultMetadata", () => {
     });
   });
 
-  it("skips the github_job_url lookup when no token is provided", async () => {
-    const metadata = await resolveDefaultMetadata({ env: { GITHUB_SHA: "aaa" } });
-    expect(metadata["langfuse.github_job_url"]).toBeUndefined();
+  it("emits the pre-resolved job URL when provided", async () => {
+    const metadata = await resolveDefaultMetadata({
+      env: { GITHUB_JOB: "e2e" },
+      jobUrl: "https://github.com/o/r/actions/runs/9/job/12",
+    });
+    expect(metadata["langfuse.github_job_url"]).toBe(
+      "https://github.com/o/r/actions/runs/9/job/12",
+    );
+    // The job *name* entry stays the YAML job key, not the display name.
+    expect(metadata["langfuse.github_job_name"]).toBe("e2e");
+  });
+
+  it("omits github_job_url when the job lookup was skipped or failed", async () => {
+    const withoutJobUrl = await resolveDefaultMetadata({ env: { GITHUB_SHA: "aaa" } });
+    expect(withoutJobUrl["langfuse.github_job_url"]).toBeUndefined();
+
+    const failedLookup = await resolveDefaultMetadata({ env: { GITHUB_SHA: "aaa" }, jobUrl: null });
+    expect(failedLookup["langfuse.github_job_url"]).toBeUndefined();
   });
 });
 

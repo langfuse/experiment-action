@@ -4,28 +4,39 @@ import * as github from "@actions/github";
 import { errorMessage, errorStatus } from "./errors";
 import { makeOctokit } from "./octokit";
 
+export interface JobInfo {
+  /** Deep link to this job's log page; `null` when the API omitted it. */
+  htmlUrl: string | null;
+  /**
+   * The job's *display* name — includes matrix values (e.g. `eval (gpt-4)`),
+   * unlike `$GITHUB_JOB` which is only the YAML job key. Unique within a
+   * run and stable across run attempts.
+   */
+  name: string;
+}
+
 /**
- * Resolve the URL to the specific job this action is running in. Returns
- * `null` when the API can't be reached or the job can't be pinned down —
- * callers should then fall back to the workflow-run URL.
+ * Resolve the job this action is running in. Returns `null` when the API
+ * can't be reached or the job can't be pinned down — callers should then
+ * fall back to the workflow-run URL / `$GITHUB_JOB`.
  *
  * Why an API call is unavoidable: `GITHUB_JOB` is the YAML job *key*, not
- * the numeric job id that appears in the URL, and GitHub doesn't expose
- * that id anywhere in the runner environment. We list jobs on the current
- * run attempt and pick ours by `runner_name` (a runner only executes one
- * job at a time on a given attempt, so this is deterministic). If the env
- * var is unexpectedly empty we fall through to a "single in-progress job"
- * match before giving up.
+ * the numeric job id that appears in the URL nor the matrix-aware display
+ * name, and GitHub doesn't expose either anywhere in the runner
+ * environment. We list jobs on the current run attempt and pick ours by
+ * `runner_name` (a runner only executes one job at a time on a given
+ * attempt, so this is deterministic). If the env var is unexpectedly empty
+ * we fall through to a "single in-progress job" match before giving up.
  *
  * Requires `actions: read` on the workflow token. On 403 we surface a
  * single warning so callers can self-diagnose.
  */
-export async function resolveJobUrl(params: {
+export async function resolveJobInfo(params: {
   token: string;
   runId: string;
   runAttempt: string;
   runnerName?: string;
-}): Promise<string | null> {
+}): Promise<JobInfo | null> {
   const { token, runId, runAttempt, runnerName } = params;
   if (!token || !runId) return null;
 
@@ -37,28 +48,35 @@ export async function resolveJobUrl(params: {
   const { owner, repo } = github.context.repo;
 
   try {
-    const { data } = await octokit.rest.actions.listJobsForWorkflowRunAttempt({
+    // Paginate: the default page size is 30 and matrices routinely exceed
+    // that, which would silently hide our own job from the listing.
+    const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRunAttempt, {
       owner,
       repo,
       run_id: runIdNum,
       attempt_number: attemptNum,
+      per_page: 100,
     });
 
     if (runnerName) {
-      const match = data.jobs.find((j) => j.runner_name === runnerName);
-      if (match?.html_url) return match.html_url;
+      // Prefer in-progress jobs: hosted-runner names aren't guaranteed
+      // unique across a run's full job history, but only one job runs on a
+      // given runner at a time.
+      const candidates = jobs.filter((j) => j.runner_name === runnerName);
+      const match = candidates.find((j) => j.status === "in_progress") ?? candidates[0];
+      if (match) return { htmlUrl: match.html_url, name: match.name };
     }
 
     // Fallback for the rare case where RUNNER_NAME is empty (some
     // self-hosted setups): a single in-progress job is unambiguously us.
-    const inProgress = data.jobs.filter((j) => j.status === "in_progress");
-    if (inProgress.length === 1 && inProgress[0].html_url) {
-      return inProgress[0].html_url;
+    const inProgress = jobs.filter((j) => j.status === "in_progress");
+    if (inProgress.length === 1) {
+      return { htmlUrl: inProgress[0].html_url, name: inProgress[0].name };
     }
 
     core.warning(
       `Could not identify the current job (runner="${runnerName ?? ""}", ` +
-        `${data.jobs.length} jobs, ${inProgress.length} in progress). ` +
+        `${jobs.length} jobs, ${inProgress.length} in progress). ` +
         "Falling back to the workflow-run URL.",
     );
     return null;
@@ -68,13 +86,14 @@ export async function resolveJobUrl(params: {
 
     if (status === 403) {
       core.warning(
-        "Job-URL lookup was denied (HTTP 403). Grant `actions: read` to the " +
+        "Job lookup was denied (HTTP 403). Grant `actions: read` to the " +
           "workflow (or the specific job) so the PR comment can link directly " +
-          "to the job run. Falling back to the workflow-run URL.",
+          "to the job run and tell parallel matrix legs apart. " +
+          "Falling back to the workflow-run URL.",
       );
     } else {
       core.warning(
-        `Job-URL lookup failed (${status ?? "no status"}): ${msg}. ` +
+        `Job lookup failed (${status ?? "no status"}): ${msg}. ` +
           "Falling back to the workflow-run URL.",
       );
     }

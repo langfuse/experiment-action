@@ -38626,78 +38626,7 @@ function makeOctokit(token) {
     }, retry, throttling);
 }
 
-;// CONCATENATED MODULE: ./src/github/job-url.ts
-
-
-
-
-/**
- * Resolve the URL to the specific job this action is running in. Returns
- * `null` when the API can't be reached or the job can't be pinned down —
- * callers should then fall back to the workflow-run URL.
- *
- * Why an API call is unavoidable: `GITHUB_JOB` is the YAML job *key*, not
- * the numeric job id that appears in the URL, and GitHub doesn't expose
- * that id anywhere in the runner environment. We list jobs on the current
- * run attempt and pick ours by `runner_name` (a runner only executes one
- * job at a time on a given attempt, so this is deterministic). If the env
- * var is unexpectedly empty we fall through to a "single in-progress job"
- * match before giving up.
- *
- * Requires `actions: read` on the workflow token. On 403 we surface a
- * single warning so callers can self-diagnose.
- */
-async function resolveJobUrl(params) {
-    const { token, runId, runAttempt, runnerName } = params;
-    if (!token || !runId)
-        return null;
-    const runIdNum = Number(runId);
-    const attemptNum = Math.max(1, Number(runAttempt) || 1);
-    if (!Number.isFinite(runIdNum))
-        return null;
-    const octokit = makeOctokit(token);
-    const { owner, repo } = github_context.repo;
-    try {
-        const { data } = await octokit.rest.actions.listJobsForWorkflowRunAttempt({
-            owner,
-            repo,
-            run_id: runIdNum,
-            attempt_number: attemptNum,
-        });
-        if (runnerName) {
-            const match = data.jobs.find((j) => j.runner_name === runnerName);
-            if (match?.html_url)
-                return match.html_url;
-        }
-        // Fallback for the rare case where RUNNER_NAME is empty (some
-        // self-hosted setups): a single in-progress job is unambiguously us.
-        const inProgress = data.jobs.filter((j) => j.status === "in_progress");
-        if (inProgress.length === 1 && inProgress[0].html_url) {
-            return inProgress[0].html_url;
-        }
-        warning(`Could not identify the current job (runner="${runnerName ?? ""}", ` +
-            `${data.jobs.length} jobs, ${inProgress.length} in progress). ` +
-            "Falling back to the workflow-run URL.");
-        return null;
-    }
-    catch (err) {
-        const status = errorStatus(err);
-        const msg = errorMessage(err);
-        if (status === 403) {
-            warning("Job-URL lookup was denied (HTTP 403). Grant `actions: read` to the " +
-                "workflow (or the specific job) so the PR comment can link directly " +
-                "to the job run. Falling back to the workflow-run URL.");
-        }
-        else {
-            warning(`Job-URL lookup failed (${status ?? "no status"}): ${msg}. ` +
-                "Falling back to the workflow-run URL.");
-        }
-        return null;
-    }
-}
-
 ;// CONCATENATED MODULE: ./src/metadata.ts
-
 /**
  * Namespace prepended to every default metadata key. Makes action-generated
  * metadata unambiguous alongside whatever the user adds via
@@ -38722,7 +38651,7 @@ const DEFAULT_METADATA = {
     // cases in one entry.
     actor: (env) => env.GITHUB_TRIGGERING_ACTOR ?? env.GITHUB_ACTOR ?? null,
     pr_url: resolvePrUrl,
-    github_job_url: resolveJobUrlMetadata,
+    github_job_url: (_env, opts) => opts.jobUrl ?? null,
 };
 /**
  * The full default metadata bag for the current action invocation:
@@ -38730,12 +38659,11 @@ const DEFAULT_METADATA = {
  * + user-supplied `custom` metadata layered on top.
  *
  * Custom entries win on key collisions so authors can override anything the
- * action would emit automatically. Omit `token` to skip the job-URL lookup
- * (useful in tests).
+ * action would emit automatically.
  */
 async function resolveDefaultMetadata(options = {}) {
     const env = options.env ?? process.env;
-    const opts = { token: options.token };
+    const opts = { jobUrl: options.jobUrl };
     const resolved = await Promise.all(Object.entries(DEFAULT_METADATA).map(async ([name, resolve]) => [name, await resolve(env, opts)]));
     const metadata = {};
     for (const [name, value] of resolved) {
@@ -38793,16 +38721,6 @@ function resolvePrUrl(env) {
     const server = env.GITHUB_SERVER_URL ?? "https://github.com";
     return `${server}/${repo}/pull/${prMatch[1]}`;
 }
-async function resolveJobUrlMetadata(env, opts) {
-    if (!opts.token)
-        return null;
-    return resolveJobUrl({
-        token: opts.token,
-        runId: env.GITHUB_RUN_ID ?? "",
-        runAttempt: env.GITHUB_RUN_ATTEMPT ?? "1",
-        runnerName: env.RUNNER_NAME,
-    });
-}
 function normalizeRepoPath(scriptPath, workspace) {
     const normalizedScript = scriptPath.replace(/\\/g, "/");
     const normalizedWorkspace = workspace.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -38836,15 +38754,22 @@ function runMarker(runId) {
     return `<!-- langfuse-experiment-action run_id=${encodeURIComponent(runId)} -->`;
 }
 /**
- * Delimiters wrapping one script's section inside the run comment. We key
- * the marker on the script *path* (encoded) so two scripts whose SDK
- * experiment names happen to collide still get separate sections.
+ * Delimiters wrapping one invocation's section inside the run comment. We
+ * key the marker on the script *path* (so two scripts whose SDK experiment
+ * names collide still get separate sections) *and* the job key (so parallel
+ * matrix legs running the same script don't overwrite each other — the job
+ * display name is the only per-leg identity GitHub gives us).
+ *
+ * The trailing space on `start` is load-bearing: markers are matched by
+ * `indexOf` prefix, and the space terminates the job key so `job=a` can
+ * never match `job=ab` (`encodeURIComponent` never emits a space).
  */
-function sectionMarkers(scriptPath) {
-    const key = encodeURIComponent(scriptPath);
+function sectionMarkers(scriptPath, jobKey) {
+    const script = encodeURIComponent(scriptPath);
+    const job = encodeURIComponent(jobKey);
     return {
-        start: `<!-- langfuse-experiment-action:start script=${key}`,
-        end: `<!-- langfuse-experiment-action:end script=${key} -->`,
+        start: `<!-- langfuse-experiment-action:start script=${script} job=${job} `,
+        end: `<!-- langfuse-experiment-action:end script=${script} job=${job} -->`,
     };
 }
 function overviewMarkers() {
@@ -38939,10 +38864,10 @@ function renderActionMetadata(runUrl, langfuseUrl, localDataset) {
         attrs.push("local_dataset=true");
     return attrs.length > 0 ? attrs.join(" ") : null;
 }
-function renderSectionStartMarker(scriptPath, opts = {}) {
-    const { start } = sectionMarkers(scriptPath);
+function renderSectionStartMarker(scriptPath, jobKey, opts = {}) {
+    const { start } = sectionMarkers(scriptPath, jobKey);
     const attrs = renderActionMetadata(opts.runUrl, opts.langfuseUrl, opts.localDataset);
-    return `${start}${attrs ? ` ${attrs}` : ""} -->`;
+    return `${start}${attrs ? `${attrs} ` : ""}-->`;
 }
 function parseActionAttributes(raw) {
     const attrs = new Map((raw ?? "")
@@ -38963,14 +38888,23 @@ function parseActionAttributes(raw) {
     };
 }
 function renderOverviewTable(metas) {
-    const duplicates = new Map();
+    const byDisplayName = new Map();
     for (const meta of metas) {
-        duplicates.set(meta.displayName, (duplicates.get(meta.displayName) ?? 0) + 1);
+        const group = byDisplayName.get(meta.displayName) ?? [];
+        group.push(meta);
+        byDisplayName.set(meta.displayName, group);
     }
     const rows = metas.map((meta) => {
-        const experiment = (duplicates.get(meta.displayName) ?? 0) > 1
-            ? `${cell(meta.displayName, 48)} (\`${cell(meta.scriptLabel, 32)}\`)`
-            : cell(meta.displayName, 56);
+        const group = byDisplayName.get(meta.displayName) ?? [];
+        let experiment = cell(meta.displayName, 56);
+        if (group.length > 1) {
+            // Colliding display names usually mean matrix legs sharing a script —
+            // the job name is what tells them apart. Fall back to the script label
+            // when job keys don't disambiguate (distinct scripts, same name).
+            const jobKeys = new Set(group.map((m) => m.jobKey ?? ""));
+            const disambiguator = meta.jobKey && jobKeys.size === group.length ? meta.jobKey : meta.scriptLabel;
+            experiment = `${cell(meta.displayName, 48)} (\`${cell(disambiguator, 32)}\`)`;
+        }
         return [
             experiment,
             cell(meta.status, 20),
@@ -38994,14 +38928,21 @@ function replaceMarkedBlock(body, start, end, replacement) {
 }
 function parseSectionOverview(body) {
     const sections = [];
-    const regex = /<!-- langfuse-experiment-action:start script=([^ >]+)([^>]*)-->/g;
+    // `job=` is optional so sections written by pre-job-key action versions
+    // (possible when one run mixes action versions across jobs) still parse.
+    const regex = /<!-- langfuse-experiment-action:start script=([^ >]+)(?: job=([^ >]*))?([^>]*)-->/g;
     let match;
     while ((match = regex.exec(body)) !== null) {
         const encodedScriptPath = match[1];
         if (!encodedScriptPath)
             continue;
         const scriptPath = decodeURIComponent(encodedScriptPath);
-        const { end } = sectionMarkers(scriptPath);
+        const encodedJobKey = match[2];
+        // Reconstruct the end marker in the same format the section was written
+        // in — from the *encoded* captures, so we match byte-for-byte.
+        const end = encodedJobKey === undefined
+            ? `<!-- langfuse-experiment-action:end script=${encodedScriptPath} -->`
+            : `<!-- langfuse-experiment-action:end script=${encodedScriptPath} job=${encodedJobKey} -->`;
         const sectionStart = match.index;
         const sectionEnd = body.indexOf(end, sectionStart);
         if (sectionEnd === -1)
@@ -39023,13 +38964,14 @@ function parseSectionOverview(body) {
             : sectionBody.match(/^> \*\*.+:\*\*/m)
                 ? "❌ Regression"
                 : "✅ Pass";
-        const startAttrs = parseActionAttributes(match[2]?.trim());
+        const startAttrs = parseActionAttributes(match[3]?.trim());
         const legacyActionMeta = parseActionAttributes(sectionBody.match(/<!-- langfuse-experiment-action:actions ([^>]+) -->/)?.[1]);
         const runUrl = startAttrs.runUrl ?? legacyActionMeta.runUrl;
         const langfuseUrl = startAttrs.langfuseUrl ?? legacyActionMeta.langfuseUrl;
         const localDataset = startAttrs.localDataset ?? legacyActionMeta.localDataset;
         sections.push({
             scriptPath,
+            jobKey: encodedJobKey === undefined ? undefined : decodeURIComponent(encodedJobKey),
             displayName,
             scriptLabel: scriptLabelText,
             status,
@@ -39161,8 +39103,8 @@ function renderErrorCallout(err) {
  * something recognisable.
  */
 function renderScriptSection(opts) {
-    const { result: scriptResult, runUrl, scriptUrl } = opts;
-    const { end } = sectionMarkers(scriptResult.scriptPath);
+    const { result: scriptResult, jobKey = "", jobLabel, runUrl, scriptUrl } = opts;
+    const { end } = sectionMarkers(scriptResult.scriptPath, jobKey);
     const normalized = scriptResult.normalizedResult;
     const langfuseUrl = scriptResult.langfuseExperimentUrl ?? undefined;
     const localDataset = Boolean(normalized && !normalized.datasetRunId);
@@ -39171,10 +39113,14 @@ function renderScriptSection(opts) {
     const { icon } = statusSummary(scriptResult.error);
     const summary = renderSectionSummary({
         icon,
-        displayName,
+        displayName: jobLabel ? `${displayName} — ${jobLabel}` : displayName,
     });
     const lines = [
-        renderSectionStartMarker(scriptResult.scriptPath, { runUrl, langfuseUrl, localDataset }),
+        renderSectionStartMarker(scriptResult.scriptPath, jobKey, {
+            runUrl,
+            langfuseUrl,
+            localDataset,
+        }),
         failed
             ? `<details open><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`
             : `<details><summary>${summary}${renderSummarySourceLink(scriptUrl)}</summary>`,
@@ -39264,15 +39210,38 @@ function refreshCommentTitle(body, titleOpts) {
     return `${title}\n\n${body.replace(/^\s+/, "")}`;
 }
 /**
- * Replace an existing section keyed on `scriptPath` in place, or append it
- * to the end of the body if none exists.
+ * Replace an existing section keyed on `(scriptPath, jobKey)` in place, or
+ * append it to the end of the body if none exists.
  */
-function upsertSection(existingBody, scriptPath, section) {
-    const { start, end } = sectionMarkers(scriptPath);
+function upsertSection(existingBody, scriptPath, jobKey, section) {
+    const { start, end } = sectionMarkers(scriptPath, jobKey);
     const updated = replaceMarkedBlock(existingBody, start, end, section);
     if (updated !== existingBody)
         return updated;
     return `${existingBody.replace(/\s+$/, "")}\n\n${section}\n`;
+}
+/**
+ * Bound on the merge-verify-retry loop below. Each retry only fires when a
+ * concurrent job clobbered our write, so in practice one or two attempts
+ * suffice even for large matrices.
+ */
+const MAX_UPSERT_ATTEMPTS = 5;
+/**
+ * The comment all racing jobs converge on: the *oldest* (lowest-id) comment
+ * carrying the run marker. Lowest-id is a deterministic tiebreak every job
+ * agrees on when a creation race produced duplicates.
+ */
+async function findCanonicalComment(octokit, repo, issueNumber, marker) {
+    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+        ...repo,
+        issue_number: issueNumber,
+        per_page: 100,
+    });
+    const candidates = comments.filter((c) => typeof c.body === "string" && c.body.includes(marker));
+    if (candidates.length === 0)
+        return null;
+    const oldest = candidates.reduce((a, b) => (a.id <= b.id ? a : b));
+    return { id: oldest.id, body: oldest.body ?? "" };
 }
 /**
  * Post (or upsert) the single PR comment for this workflow run.
@@ -39280,15 +39249,26 @@ function upsertSection(existingBody, scriptPath, section) {
  *   - If no comment exists yet for `runId`, create one carrying the title
  *     and all provided sections.
  *   - If a comment exists, splice each section into the existing body
- *     (replace-in-place for scripts whose paths we've rendered before in
+ *     (replace-in-place for `(script, job)` keys we've rendered before in
  *     this run, append otherwise), then update the comment in one API
  *     call.
  *
  * Different `runId`s always get fresh comments so users see evolution
  * across commits and re-pushes.
+ *
+ * Parallel jobs (e.g. matrix legs) race on this shared comment and GitHub
+ * offers no compare-and-swap for comments, so the upsert is *convergent*
+ * instead of atomic: every writer merges into the canonical comment
+ * (preserving other jobs' sections), then verifies its own sections
+ * survived and retries the merge if a concurrent writer clobbered them.
+ * A job that loses a creation race deletes its duplicate after merging.
+ * Residual risk: a job killed mid-retry can still leave its sections
+ * missing — hence the warning on exhaustion.
  */
 async function postPrComment(opts) {
     const { sections, token, runId, shortSha, runAttempt } = opts;
+    const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    const jitter = opts.jitter ?? Math.random;
     const ctx = github_context;
     const pr = ctx.payload.pull_request;
     if (!pr) {
@@ -39307,46 +39287,56 @@ async function postPrComment(opts) {
     }
     const octokit = makeOctokit(token);
     const marker = runMarker(runId);
+    const repo = { owner: ctx.repo.owner, repo: ctx.repo.repo };
     core_debug(`PR comment run marker: ${marker}`);
     core_debug(`Upserting ${sections.length} section(s).`);
     try {
-        const existing = await octokit.paginate(octokit.rest.issues.listComments, {
-            owner: ctx.repo.owner,
-            repo: ctx.repo.repo,
-            issue_number: pr.number,
-            per_page: 100,
-        });
-        const match = existing.find((c) => typeof c.body === "string" && c.body.includes(marker));
-        const titleOpts = { shortSha, runAttempt };
-        let body;
-        if (match) {
-            body = refreshCommentTitle(match.body ?? marker, titleOpts);
+        let ourCreatedId = null;
+        for (let attempt = 1; attempt <= MAX_UPSERT_ATTEMPTS; attempt++) {
+            const canonical = await findCanonicalComment(octokit, repo, pr.number, marker);
+            const titleOpts = { shortSha, runAttempt };
+            let body = canonical
+                ? refreshCommentTitle(canonical.body, titleOpts)
+                : buildFreshCommentBody(runId, titleOpts, []);
+            for (const { scriptPath, jobKey, markdown } of sections) {
+                body = upsertSection(body, scriptPath, jobKey, markdown);
+            }
+            body = refreshOverview(body);
+            if (canonical) {
+                await octokit.rest.issues.updateComment({ ...repo, comment_id: canonical.id, body });
+                if (ourCreatedId !== null && ourCreatedId !== canonical.id) {
+                    // We lost an earlier creation race. Our sections are now merged
+                    // into the canonical comment, so our duplicate is safe to drop.
+                    try {
+                        await octokit.rest.issues.deleteComment({ ...repo, comment_id: ourCreatedId });
+                    }
+                    catch (deleteErr) {
+                        core_debug(`Failed to delete duplicate comment: ${errorMessage(deleteErr)}`);
+                    }
+                    ourCreatedId = null;
+                }
+            }
+            else {
+                const created = await octokit.rest.issues.createComment({
+                    ...repo,
+                    issue_number: pr.number,
+                    body,
+                });
+                ourCreatedId = created.data.id;
+            }
+            await sleep(300 + jitter() * 600);
+            const verified = await findCanonicalComment(octokit, repo, pr.number, marker);
+            const converged = verified !== null &&
+                (ourCreatedId === null || ourCreatedId === verified.id) &&
+                sections.every(({ scriptPath, jobKey }) => verified.body.includes(sectionMarkers(scriptPath, jobKey).start));
+            if (converged) {
+                info(`Upserted run ${runId} comment ${verified.id} on PR #${pr.number}.`);
+                return;
+            }
+            core_debug(`PR comment write was clobbered by a concurrent job (attempt ${attempt}).`);
         }
-        else {
-            body = buildFreshCommentBody(runId, titleOpts, []);
-        }
-        for (const { scriptPath, markdown } of sections) {
-            body = upsertSection(body, scriptPath, markdown);
-        }
-        body = refreshOverview(body);
-        if (match) {
-            await octokit.rest.issues.updateComment({
-                owner: ctx.repo.owner,
-                repo: ctx.repo.repo,
-                comment_id: match.id,
-                body,
-            });
-            info(`Updated run ${runId} comment ${match.id} on PR #${pr.number}.`);
-        }
-        else {
-            await octokit.rest.issues.createComment({
-                owner: ctx.repo.owner,
-                repo: ctx.repo.repo,
-                issue_number: pr.number,
-                body,
-            });
-            info(`Posted run ${runId} comment on PR #${pr.number}.`);
-        }
+        warning(`PR comment for run ${runId} may be incomplete: concurrent jobs kept racing on the ` +
+            `shared comment for ${MAX_UPSERT_ATTEMPTS} attempts. Re-run this job to refresh it.`);
     }
     catch (err) {
         const status = errorStatus(err);
@@ -39365,17 +39355,25 @@ async function postPrComment(opts) {
  * one section per `ScriptResult`, and hands the batch to `postPrComment`.
  */
 async function publishExperimentComment(opts) {
-    const { inputs, results, metadata } = opts;
+    const { inputs, results, jobInfo } = opts;
     const env = opts.env ?? process.env;
-    // Prefer the job URL (set by the metadata resolver when the API call
-    // succeeded); fall back to the workflow-run URL so the comment still
-    // carries a link even when job-id resolution fails.
-    const jobUrl = metadata["langfuse.github_job_url"];
-    const runUrl = jobUrl ?? buildWorkflowRunUrl(env) ?? undefined;
+    // Fall back to the workflow-run URL so the comment still carries a link
+    // even when job resolution failed (e.g. no `actions: read`).
+    const runUrl = jobInfo?.htmlUrl ?? buildWorkflowRunUrl(env) ?? undefined;
+    // The job display name is the only per-leg identity for matrix jobs.
+    // Without it (no `actions: read`) fall back to the YAML job key, which
+    // still separates different jobs — just not legs of the same matrix.
+    const jobKey = jobInfo?.name ?? env.GITHUB_JOB ?? "";
+    // Surface the job name in section summaries only when it adds signal
+    // (matrix legs / renamed jobs); plain jobs keep today's rendering.
+    const jobLabel = jobInfo?.name && jobInfo.name !== env.GITHUB_JOB ? jobInfo.name : undefined;
     const sections = results.map((result) => ({
         scriptPath: result.scriptPath,
+        jobKey,
         markdown: renderScriptSection({
             result,
+            jobKey,
+            jobLabel,
             runUrl,
             scriptUrl: buildScriptBlobUrl(result.scriptPath, env) ?? undefined,
         }),
@@ -43177,6 +43175,84 @@ async function setupExperimentScripts(discovered, options) {
         }
         return new NodeScript(d.path, nodeModulesDir);
     });
+}
+
+;// CONCATENATED MODULE: ./src/github/job-url.ts
+
+
+
+
+/**
+ * Resolve the job this action is running in. Returns `null` when the API
+ * can't be reached or the job can't be pinned down — callers should then
+ * fall back to the workflow-run URL / `$GITHUB_JOB`.
+ *
+ * Why an API call is unavoidable: `GITHUB_JOB` is the YAML job *key*, not
+ * the numeric job id that appears in the URL nor the matrix-aware display
+ * name, and GitHub doesn't expose either anywhere in the runner
+ * environment. We list jobs on the current run attempt and pick ours by
+ * `runner_name` (a runner only executes one job at a time on a given
+ * attempt, so this is deterministic). If the env var is unexpectedly empty
+ * we fall through to a "single in-progress job" match before giving up.
+ *
+ * Requires `actions: read` on the workflow token. On 403 we surface a
+ * single warning so callers can self-diagnose.
+ */
+async function resolveJobInfo(params) {
+    const { token, runId, runAttempt, runnerName } = params;
+    if (!token || !runId)
+        return null;
+    const runIdNum = Number(runId);
+    const attemptNum = Math.max(1, Number(runAttempt) || 1);
+    if (!Number.isFinite(runIdNum))
+        return null;
+    const octokit = makeOctokit(token);
+    const { owner, repo } = github_context.repo;
+    try {
+        // Paginate: the default page size is 30 and matrices routinely exceed
+        // that, which would silently hide our own job from the listing.
+        const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRunAttempt, {
+            owner,
+            repo,
+            run_id: runIdNum,
+            attempt_number: attemptNum,
+            per_page: 100,
+        });
+        if (runnerName) {
+            // Prefer in-progress jobs: hosted-runner names aren't guaranteed
+            // unique across a run's full job history, but only one job runs on a
+            // given runner at a time.
+            const candidates = jobs.filter((j) => j.runner_name === runnerName);
+            const match = candidates.find((j) => j.status === "in_progress") ?? candidates[0];
+            if (match)
+                return { htmlUrl: match.html_url, name: match.name };
+        }
+        // Fallback for the rare case where RUNNER_NAME is empty (some
+        // self-hosted setups): a single in-progress job is unambiguously us.
+        const inProgress = jobs.filter((j) => j.status === "in_progress");
+        if (inProgress.length === 1) {
+            return { htmlUrl: inProgress[0].html_url, name: inProgress[0].name };
+        }
+        warning(`Could not identify the current job (runner="${runnerName ?? ""}", ` +
+            `${jobs.length} jobs, ${inProgress.length} in progress). ` +
+            "Falling back to the workflow-run URL.");
+        return null;
+    }
+    catch (err) {
+        const status = errorStatus(err);
+        const msg = errorMessage(err);
+        if (status === 403) {
+            warning("Job lookup was denied (HTTP 403). Grant `actions: read` to the " +
+                "workflow (or the specific job) so the PR comment can link directly " +
+                "to the job run and tell parallel matrix legs apart. " +
+                "Falling back to the workflow-run URL.");
+        }
+        else {
+            warning(`Job lookup failed (${status ?? "no status"}): ${msg}. ` +
+                "Falling back to the workflow-run URL.");
+        }
+        return null;
+    }
 }
 
 ;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.2_typescript@6.0.3/node_modules/valibot/dist/index.mjs
@@ -51102,6 +51178,7 @@ function setOutputs(opts) {
 
 
 
+
 async function run() {
     const inputs = resolveInputs();
     core_debug(`Resolved inputs: experimentPath=${inputs.experimentPath} ` +
@@ -51119,8 +51196,18 @@ async function run() {
         jsSdkVersion: inputs.jsSdkVersion,
         shouldSkipSdkInstallation: inputs.shouldSkipSdkInstallation,
     });
+    // Resolved once and reused by both the metadata bag (job URL) and the PR
+    // comment (job display name — the per-leg identity for matrix jobs).
+    const jobInfo = inputs.githubToken
+        ? await resolveJobInfo({
+            token: inputs.githubToken,
+            runId: process.env.GITHUB_RUN_ID ?? "",
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "1",
+            runnerName: process.env.RUNNER_NAME,
+        })
+        : null;
     const metadata = await resolveDefaultMetadata({
-        token: inputs.githubToken,
+        jobUrl: jobInfo?.htmlUrl,
         custom: inputs.customMetadata,
     });
     const langfuseProjectId = (await resolveProjectId({
@@ -51170,7 +51257,7 @@ async function run() {
         actionMetadata: metadata,
     });
     if (inputs.shouldCommentOnPr) {
-        await publishExperimentComment({ inputs, results, metadata });
+        await publishExperimentComment({ inputs, results, jobInfo });
     }
     const shouldFailJob = (regressions > 0 && inputs.shouldFailOnRegression) ||
         (scriptErrors > 0 && inputs.shouldFailOnScriptError);

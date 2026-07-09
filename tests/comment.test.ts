@@ -26,6 +26,8 @@ const snap = (file: string) => `${SNAPSHOT_DIR}/${file}`;
 const SNAPSHOT_RUN_ID = "12345";
 const SNAPSHOT_TITLE = { shortSha: "abc1234", runAttempt: 1 } as const;
 
+const SNAPSHOT_JOB_KEY = "evals";
+
 function renderFullCommentSnapshot(
   result: ScriptResult,
   opts: {
@@ -35,6 +37,7 @@ function renderFullCommentSnapshot(
 ): string {
   const section = renderScriptSection({
     result,
+    jobKey: SNAPSHOT_JOB_KEY,
     runUrl: opts.runUrl,
     scriptUrl: opts.scriptUrl,
   });
@@ -215,6 +218,15 @@ describe("renderScriptSection snapshots", () => {
     expect(section).toContain("<details><summary>✅ Uppercase task</summary>");
   });
 
+  it("appends the job label to the summary for matrix legs", () => {
+    const section = renderScriptSection({
+      result: pyPassingResult,
+      jobKey: "e2e (alpha)",
+      jobLabel: "e2e (alpha)",
+    });
+    expect(section).toContain("<details><summary>✅ Uppercase task — e2e (alpha)</summary>");
+  });
+
   it("links the source in the summary when a blob URL is provided", () => {
     const section = renderScriptSection({
       result: pyPassingResult,
@@ -341,19 +353,42 @@ describe("buildFreshCommentBody snapshot", () => {
     const body = buildFreshCommentBody("12345", { shortSha: "abc1234", runAttempt: 2 }, [s1, s2]);
     await expect(body).toMatchFileSnapshot(snap("fresh-comment-multi.md"));
   });
+
+  it("disambiguates same-named experiments from different matrix legs by job name", () => {
+    // Same script + same experiment name, distinct job keys — the matrix case.
+    const s1 = renderScriptSection({ result: pyPassingResult, jobKey: "e2e (alpha)" });
+    const s2 = renderScriptSection({ result: pyPassingResult, jobKey: "e2e (beta)" });
+    const body = buildFreshCommentBody("12345", SNAPSHOT_TITLE, [s1, s2]);
+    expect(body).toContain("Uppercase task (`e2e (alpha)`)");
+    expect(body).toContain("Uppercase task (`e2e (beta)`)");
+  });
+
+  it("falls back to the script label when colliding names share a job key", () => {
+    // Two different scripts, same experiment name, same job — the pre-matrix
+    // disambiguation behavior.
+    const s1 = renderScriptSection({ result: pyPassingResult, jobKey: "e2e" });
+    const s2 = renderScriptSection({
+      result: { ...pyPassingResult, scriptPath: "/other/experiment.py" },
+      jobKey: "e2e",
+    });
+    const body = buildFreshCommentBody("12345", SNAPSHOT_TITLE, [s1, s2]);
+    expect(body).toContain("Uppercase task (`tmp/experiment.py`)");
+    expect(body).toContain("Uppercase task (`other/experiment.py`)");
+  });
 });
 
 describe("upsertSection", () => {
-  const mkSection = (scriptPath: string, label: string) =>
+  const JOB = "e2e (alpha)";
+  const mkSection = (scriptPath: string, label: string, jobKey = JOB) =>
     [
-      `<!-- langfuse-experiment-action:start script=${encodeURIComponent(scriptPath)} -->`,
+      `<!-- langfuse-experiment-action:start script=${encodeURIComponent(scriptPath)} job=${encodeURIComponent(jobKey)} -->`,
       `section body for ${label}`,
-      `<!-- langfuse-experiment-action:end script=${encodeURIComponent(scriptPath)} -->`,
+      `<!-- langfuse-experiment-action:end script=${encodeURIComponent(scriptPath)} job=${encodeURIComponent(jobKey)} -->`,
     ].join("\n");
 
   it("appends when no prior section exists for that script path", () => {
     const existing = `<!-- langfuse-experiment-action run_id=1 -->\n\n${mkSection("/tmp/a.py", "v1")}\n`;
-    const updated = upsertSection(existing, "/tmp/b.py", mkSection("/tmp/b.py", "v1"));
+    const updated = upsertSection(existing, "/tmp/b.py", JOB, mkSection("/tmp/b.py", "v1"));
     expect(updated).toContain(encodeURIComponent("/tmp/a.py"));
     expect(updated).toContain(encodeURIComponent("/tmp/b.py"));
     expect(updated.indexOf(encodeURIComponent("/tmp/a.py"))).toBeLessThan(
@@ -369,7 +404,7 @@ describe("upsertSection", () => {
       "",
       mkSection("/tmp/b.py", "keep"),
     ].join("\n");
-    const updated = upsertSection(existing, "/tmp/a.py", mkSection("/tmp/a.py", "new"));
+    const updated = upsertSection(existing, "/tmp/a.py", JOB, mkSection("/tmp/a.py", "new"));
     expect(updated).toContain("section body for new");
     expect(updated).not.toContain("section body for old");
     expect(updated).toContain("section body for keep");
@@ -378,5 +413,53 @@ describe("upsertSection", () => {
     const bEncoded = encodeURIComponent("/tmp/b.py");
     expect(updated.match(new RegExp(`:start script=${aEncoded}`, "g"))).toHaveLength(1);
     expect(updated.match(new RegExp(`:start script=${bEncoded}`, "g"))).toHaveLength(1);
+  });
+
+  it("keeps distinct sections for matrix legs running the same script (issue #14907)", () => {
+    const existing = [
+      "<!-- langfuse-experiment-action run_id=1 -->",
+      "",
+      mkSection("/tmp/a.py", "leg alpha", "e2e (alpha)"),
+    ].join("\n");
+    const appended = upsertSection(
+      existing,
+      "/tmp/a.py",
+      "e2e (beta)",
+      mkSection("/tmp/a.py", "leg beta", "e2e (beta)"),
+    );
+    expect(appended).toContain("section body for leg alpha");
+    expect(appended).toContain("section body for leg beta");
+
+    // Re-upserting one leg replaces only that leg's section.
+    const updated = upsertSection(
+      appended,
+      "/tmp/a.py",
+      "e2e (beta)",
+      mkSection("/tmp/a.py", "leg beta v2", "e2e (beta)"),
+    );
+    expect(updated).toContain("section body for leg alpha");
+    expect(updated).toContain("section body for leg beta v2");
+    expect(updated).not.toContain("section body for leg beta\n");
+  });
+
+  it("does not cross-replace when one key is a prefix of another", () => {
+    const existing = [
+      "<!-- langfuse-experiment-action run_id=1 -->",
+      "",
+      mkSection("/tmp/ab.py", "long script", "job"),
+      "",
+      mkSection("/tmp/a.py", "short script", "jobx"),
+    ].join("\n");
+    const updated = upsertSection(
+      existing,
+      "/tmp/a.py",
+      "job",
+      mkSection("/tmp/a.py", "short script new", "job"),
+    );
+    // `/tmp/a.py` + `job` matches neither `/tmp/ab.py` + `job` nor
+    // `/tmp/a.py` + `jobx` → appended as a third section.
+    expect(updated).toContain("section body for long script");
+    expect(updated).toContain("section body for short script");
+    expect(updated).toContain("section body for short script new");
   });
 });
