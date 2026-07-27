@@ -70,7 +70,7 @@ jobs:
       # tag-moved attacks). The `# v<version>` comment is what humans
       # read; the SHA is what GitHub resolves. This line is auto-bumped
       # by `.github/workflows/release-bump-readme.yml` on every release.
-      - uses: langfuse/experiment-action@47899ac5b368975fc64c9ff47d3cfcdce7c4ec61 # v1.0.6
+      - uses: langfuse/experiment-action@e1f126216d592429e76cef2223f9c57ba03aabe2 # v1.0.7
         with:
           langfuse_public_key: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           langfuse_secret_key: ${{ secrets.LANGFUSE_SECRET_KEY }}
@@ -180,7 +180,7 @@ CI job fails depending on `should_fail_on_regression` /
 ### Consuming the result in later steps
 
 ```yaml
-- uses: langfuse/experiment-action@47899ac5b368975fc64c9ff47d3cfcdce7c4ec61 # v1.0.6
+- uses: langfuse/experiment-action@e1f126216d592429e76cef2223f9c57ba03aabe2 # v1.0.7
   id: experiment
   with: # ...
 
@@ -245,7 +245,7 @@ you'd rather honour than reinstall against the action's default SDK versions.
 
 - run: pip install -r requirements.txt # must include `langfuse`
 
-- uses: langfuse/experiment-action@47899ac5b368975fc64c9ff47d3cfcdce7c4ec61 # v1.0.6
+- uses: langfuse/experiment-action@e1f126216d592429e76cef2223f9c57ba03aabe2 # v1.0.7
   with:
     experiment_path: experiments/
     should_skip_sdk_installation: "true"
@@ -270,7 +270,7 @@ The action needs `@langfuse/client`, `@langfuse/tracing`, `@langfuse/otel`,
 
 - run: npm ci # or `pnpm install --frozen-lockfile`, `yarn install --frozen-lockfile`
 
-- uses: langfuse/experiment-action@47899ac5b368975fc64c9ff47d3cfcdce7c4ec61 # v1.0.6
+- uses: langfuse/experiment-action@e1f126216d592429e76cef2223f9c57ba03aabe2 # v1.0.7
   with:
     experiment_path: experiments/
     should_skip_sdk_installation: "true"
@@ -288,7 +288,7 @@ Set them as env vars on the action step — the experiment subprocess
 inherits the parent process's environment.
 
 ```yaml
-- uses: langfuse/experiment-action@47899ac5b368975fc64c9ff47d3cfcdce7c4ec61 # v1.0.6
+- uses: langfuse/experiment-action@e1f126216d592429e76cef2223f9c57ba03aabe2 # v1.0.7
   env:
     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
