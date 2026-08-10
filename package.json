@@ -34,13 +34,13 @@
     "@actions/github": "^9.1.1",
     "@actions/glob": "^0.7.0",
     "@actions/io": "^3.0.2",
-    "@octokit/plugin-retry": "^8.1.0",
-    "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/plugin-retry": "^8.1.1",
+    "@octokit/plugin-throttling": "^11.0.5",
     "valibot": "^1.4.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@langfuse/client": "5.9.1",
+    "@langfuse/client": "5.10.0",
     "@types/node": "^26.1.2",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@typescript-eslint/eslint-plugin": "^8.64.0",
@@ -57,8 +57,8 @@
     "eslint-plugin-sonarjs": "^4.2.0",
     "husky": "^9.1.7",
     "prettier": "^3.9.5",
-    "tsx": "^4.23.1",
-    "typescript": "^6.0.3",
+    "tsx": "^4.23.5",
+    "typescript": "^7.0.2",
     "vite": "^8.2.0",
     "vitest": "^4.1.10"
   }
