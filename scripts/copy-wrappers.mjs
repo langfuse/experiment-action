@@ -7,11 +7,11 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = join(here, "..", "src", "executors", "wrappers");
-const DEST_DIR = join(here, "..", "dist", "wrappers");
+const DEST_DIR = join(here, "..", "dist");
 
 await mkdir(DEST_DIR, { recursive: true });
 for (const entry of await readdir(SRC_DIR, { withFileTypes: true })) {
   if (!entry.isFile()) continue;
   await copyFile(join(SRC_DIR, entry.name), join(DEST_DIR, entry.name));
-  process.stdout.write(`copied wrappers/${entry.name}\n`);
+  process.stdout.write(`copied ${entry.name}\n`);
 }
