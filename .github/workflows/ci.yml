@@ -109,7 +109,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up toolchain, Langfuse server, and E2E dataset
-        uses: ./.github/actions/e2e-setup
+        uses: $/.github/actions/e2e-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -125,7 +125,7 @@ jobs:
       # --- Scenario 1: single Python script ------------------------------
       - name: Run action — single Python experiment
         id: py
-        uses: ./
+        uses: $/
         with:
           experiment_path: tests/fixtures/e2e/experiment.py
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
@@ -157,7 +157,7 @@ jobs:
       # --- Scenario 2: single TypeScript script --------------------------
       - name: Run action — single TypeScript experiment
         id: ts
-        uses: ./
+        uses: $/
         with:
           experiment_path: tests/fixtures/e2e/experiment.ts
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
@@ -188,7 +188,7 @@ jobs:
       # --- Scenario 3: mixed-runtime directory ---------------------------
       - name: Run action — mixed Python+TS directory
         id: mixed
-        uses: ./
+        uses: $/
         with:
           experiment_path: tests/fixtures/e2e/mixed
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
@@ -210,7 +210,7 @@ jobs:
       # --- Scenario 4: regression path (non-fatal) -----------------------
       - name: Run action — regression fixture (should_fail_on_regression=false)
         id: regression
-        uses: ./
+        uses: $/
         with:
           experiment_path: tests/fixtures/e2e/regression/experiment.py
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
@@ -280,7 +280,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up toolchain, Langfuse server, and E2E dataset
-        uses: ./.github/actions/e2e-setup
+        uses: $/.github/actions/e2e-setup
         with:
           node-version: ${{ env.NODE_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -293,7 +293,7 @@ jobs:
             ]
       - name: Run action — same experiment_path on every leg
         id: leg
-        uses: ./
+        uses: $/
         with:
           experiment_path: tests/fixtures/e2e/experiment.ts
           langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
