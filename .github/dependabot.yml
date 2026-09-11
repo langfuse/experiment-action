@@ -14,6 +14,12 @@ updates:
     versioning-strategy: "increase"
     assignees:
       - wochinge
+    ignore:
+      # TypeScript 7.0.x ships as the native/Go compiler rewrite and breaks
+      # typescript-eslint and the dist/ build (ncc). Unblock once 7.1 lands
+      # the API that restores typescript-eslint support.
+      - dependency-name: "typescript"
+        versions: [">= 7.0.0, < 7.1.0"]
     groups:
       npm:
         patterns:
