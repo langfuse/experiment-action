@@ -36,12 +36,12 @@
     "@actions/io": "^3.0.2",
     "@octokit/plugin-retry": "^8.1.1",
     "@octokit/plugin-throttling": "^11.0.5",
-    "valibot": "^1.4.2"
+    "valibot": "^1.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@langfuse/client": "5.11.0",
-    "@types/node": "^26.5.0",
+    "@langfuse/client": "5.11.1",
+    "@types/node": "^26.5.1",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
