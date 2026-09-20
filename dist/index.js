@@ -44002,7 +44002,7 @@ async function resolveJobInfo(params) {
     }
 }
 
-;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.4.2_typescript@6.0.3/node_modules/valibot/dist/index.mjs
+;// CONCATENATED MODULE: ./node_modules/.pnpm/valibot@1.5.0_typescript@6.0.3/node_modules/valibot/dist/index.mjs
 //#region src/storages/globalConfig/globalConfig.ts
 let store$4;
 const DEFAULT_CONFIG = {
@@ -44213,10 +44213,10 @@ function _addIssue(context, label, dataset, config$1, other) {
 /**
 * Creates a shallow copy of a dataset.
 *
-* Hint: The `value` is copied by reference, but the `issues` array is cloned
-* to avoid reusing mutable dataset state across multiple runs. Mutating a
-* returned object or array value can therefore affect later cache hits that
-* reuse the same cached output.
+* Hint: The `value` is copied by reference, but the `issues` array, its issues
+* and their `path` arrays are cloned to avoid reusing mutable dataset state
+* across multiple runs. Mutating a returned object or array value can
+* therefore affect later cache hits that reuse the same cached output.
 *
 * @param dataset The output dataset.
 *
@@ -44227,7 +44227,10 @@ function _cloneDataset(dataset) {
 	return {
 		typed: dataset.typed,
 		value: dataset.value,
-		issues: dataset.issues && [...dataset.issues]
+		issues: dataset.issues?.map((issue) => ({
+			...issue,
+			path: issue.path && [...issue.path]
+		}))
 	};
 }
 
@@ -44326,6 +44329,29 @@ function _getByteCount(input) {
 }
 
 //#endregion
+//#region src/utils/_getCodePointCount/_getCodePointCount.ts
+/**
+* Returns the code point count of the input.
+*
+* @param input The input to be measured.
+*
+* @returns The code point count.
+*
+* @internal
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function _getCodePointCount(input) {
+	let count = input.length;
+	const lengthMinus1 = input.length - 1;
+	for (let i = 0; i < lengthMinus1;) if (input.codePointAt(i) <= 65535) i++;
+	else {
+		i += 2;
+		count--;
+	}
+	return count;
+}
+
+//#endregion
 //#region src/utils/_getGraphemeCount/_getGraphemeCount.ts
 let segmenter;
 /**
@@ -44373,32 +44399,6 @@ function _getLastMetadata(schema, type) {
 			if (result !== void 0) return result;
 		}
 	}
-}
-
-//#endregion
-//#region src/utils/_getStandardProps/_getStandardProps.ts
-const _standardCache = /* @__PURE__ */ new WeakMap();
-/**
-* Returns the Standard Schema properties.
-*
-* @param context The schema context.
-*
-* @returns The Standard Schema properties.
-*/
-/* @__NO_SIDE_EFFECTS__ */
-function _getStandardProps(context) {
-	let cached = _standardCache.get(context);
-	if (!cached) {
-		cached = {
-			version: 1,
-			vendor: "valibot",
-			validate(value$1) {
-				return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
-			}
-		};
-		_standardCache.set(context, cached);
-	}
-	return cached;
 }
 
 //#endregion
@@ -44470,6 +44470,24 @@ function _isLuhnAlgo(input) {
 }
 
 //#endregion
+//#region src/utils/_isSameValueZero/_isSameValueZero.ts
+/**
+* Compares two values using the SameValueZero algorithm, which treats `NaN`
+* as equal to itself unlike `===`.
+*
+* @param value1 The first value.
+* @param value2 The second value.
+*
+* @returns Whether the values are equal.
+*
+* @internal
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function _isSameValueZero(value1, value2) {
+	return value1 === value2 || Number.isNaN(value1) && Number.isNaN(value2);
+}
+
+//#endregion
 //#region src/utils/_isValidObjectKey/_isValidObjectKey.ts
 /**
 * Disallows inherited object properties and prevents object prototype
@@ -44485,6 +44503,23 @@ function _isLuhnAlgo(input) {
 /* @__NO_SIDE_EFFECTS__ */
 function _isValidObjectKey(object$1, key) {
 	return Object.prototype.hasOwnProperty.call(object$1, key) && key !== "__proto__" && key !== "prototype" && key !== "constructor";
+}
+
+//#endregion
+//#region src/utils/_isValueMatch/_isValueMatch.ts
+/**
+* Checks whether a value matches a value action requirement.
+*
+* @param requirement The value action requirement.
+* @param value The value to check.
+*
+* @returns Whether the value matches the requirement.
+*
+* @internal
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function _isValueMatch(requirement, value$1) {
+	return Number.isNaN(requirement) && Number.isNaN(value$1) || requirement <= value$1 && requirement >= value$1;
 }
 
 //#endregion
@@ -44504,6 +44539,29 @@ function _joinExpects(values$1, separator) {
 	const list = [...new Set(values$1)];
 	if (list.length > 1) return `(${list.join(` ${separator} `)})`;
 	return list[0] ?? "never";
+}
+
+//#endregion
+//#region src/utils/_standardSchema/_standardSchema.ts
+/**
+* Eagerly creates and attaches the Standard Schema properties of a schema.
+*
+* Hint: The contextual `this` type includes the standard properties that are
+* attached before the schema is returned.
+*
+* @param schema The schema to attach standard properties to.
+*
+* @returns The schema with standard properties attached.
+*
+* @internal
+*/
+function _standardSchema(schema) {
+	schema["~standard"] = {
+		version: 1,
+		vendor: "valibot",
+		validate: (value$1) => schema["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig())
+	};
+	return schema;
 }
 
 //#endregion
@@ -44577,20 +44635,6 @@ function isOfType(type, object$1) {
 }
 
 //#endregion
-//#region src/utils/isValiError/isValiError.ts
-/**
-* A type guard to check if an error is a ValiError.
-*
-* @param error The error to check.
-*
-* @returns Whether its a ValiError.
-*/
-/* @__NO_SIDE_EFFECTS__ */
-function isValiError(error) {
-	return error instanceof ValiError;
-}
-
-//#endregion
 //#region src/utils/ValiError/ValiError.ts
 /**
 * A Valibot error with useful information.
@@ -44607,6 +44651,20 @@ var ValiError = class extends Error {
 		this.issues = issues;
 	}
 };
+
+//#endregion
+//#region src/utils/isValiError/isValiError.ts
+/**
+* A type guard to check if an error is a ValiError.
+*
+* @param error The error to check.
+*
+* @returns Whether its a ValiError.
+*/
+/* @__NO_SIDE_EFFECTS__ */
+function isValiError(error) {
+	return error instanceof ValiError;
+}
 
 //#endregion
 //#region src/actions/args/args.ts
@@ -44705,8 +44763,10 @@ const DIGITS_REGEX = /^\d+$/u;
 const DOMAIN_REGEX = /^(?=.{1,253}$)(?:(?![Xx][Nn]--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/u;
 /**
 * [Email address](https://en.wikipedia.org/wiki/Email_address) regex.
+*
+* Hint: We decided against the `i` flag to avoid matching non-ASCII characters.
 */
-const EMAIL_REGEX = /^[\w+-]+(?:\.[\w+-]+)*@[\da-z]+(?:[.-][\da-z]+)*\.[a-z]{2,}$/iu;
+const EMAIL_REGEX = /^[\w+-]+(?:\.[\w+-]+)*@[\da-zA-Z]+(?:[.-][\da-zA-Z]+)*\.[a-zA-Z]{2,}$/u;
 /**
 * Emoji regex from [emoji-regex-xs](https://github.com/slevithan/emoji-regex-xs) v1.0.0 (MIT license).
 *
@@ -44785,6 +44845,10 @@ const JWS_COMPACT_REGEX = /^(?:[\w-]{2,3}|(?:[\w-]{4})+(?:[\w-]{2,3})?)\.(?:[\w-
 */
 const ISRC_REGEX = /^(?:[A-Z]{2}[A-Z\d]{3}\d{7}|[A-Z]{2}-[A-Z\d]{3}-\d{2}-\d{5})$/u;
 /**
+* [KSUID](https://github.com/segmentio/ksuid) regex.
+*/
+const KSUID_REGEX = /^[a-zA-Z0-9]{27}$/u;
+/**
 * [MAC](https://en.wikipedia.org/wiki/MAC_address) 48 bit regex.
 *
 * Hint: We decided against the `i` flag for better JSON Schema compatibility.
@@ -44824,8 +44888,11 @@ const SLUG_REGEX = /^[\da-z]+(?:[-_][\da-z]+)*$/u;
 * [ULID](https://github.com/ulid/spec) regex.
 *
 * Hint: We decided against the `i` flag for better JSON Schema compatibility.
+* Hint: The first character is restricted to `[0-7]` because the 48-bit
+* timestamp cannot exceed 2^48-1, making the maximum valid ULID
+* `7ZZZZZZZZZZZZZZZZZZZZZZZZZ` in Crockford's Base32 encoding.
 */
-const ULID_REGEX = /^[\da-hjkmnp-tv-zA-HJKMNP-TV-Z]{26}$/u;
+const ULID_REGEX = /^[0-7][\da-hjkmnp-tv-zA-HJKMNP-TV-Z]{25}$/u;
 /**
 * [UUID](https://en.wikipedia.org/wiki/Universally_unique_identifier) regex.
 */
@@ -45011,6 +45078,28 @@ function checkItemsAsync(requirement, message$1) {
 						}]
 					});
 				}
+			}
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/codePoints/codePoints.ts
+/* @__NO_SIDE_EFFECTS__ */
+function codePoints(requirement, message$1) {
+	return {
+		kind: "validation",
+		type: "code_points",
+		reference: codePoints,
+		async: false,
+		expects: `${requirement}`,
+		requirement,
+		message: message$1,
+		"~run"(dataset, config$1) {
+			if (dataset.typed) {
+				const count = /* @__PURE__ */ _getCodePointCount(dataset.value);
+				if (count !== this.requirement) _addIssue(this, "code points", dataset, config$1, { received: `${count}` });
 			}
 			return dataset;
 		}
@@ -45887,6 +45976,25 @@ function jwsCompact(message$1) {
 }
 
 //#endregion
+//#region src/actions/ksuid/ksuid.ts
+/* @__NO_SIDE_EFFECTS__ */
+function ksuid(message$1) {
+	return {
+		kind: "validation",
+		type: "ksuid",
+		reference: ksuid,
+		async: false,
+		expects: null,
+		requirement: KSUID_REGEX,
+		message: message$1,
+		"~run"(dataset, config$1) {
+			if (dataset.typed && !this.requirement.test(dataset.value)) _addIssue(this, "KSUID", dataset, config$1);
+			return dataset;
+		}
+	};
+}
+
+//#endregion
 //#region src/actions/length/length.ts
 /* @__NO_SIDE_EFFECTS__ */
 function dist_length(requirement, message$1) {
@@ -46014,6 +46122,28 @@ function maxBytes(requirement, message$1) {
 			if (dataset.typed) {
 				const length$1 = /* @__PURE__ */ _getByteCount(dataset.value);
 				if (length$1 > this.requirement) _addIssue(this, "bytes", dataset, config$1, { received: `${length$1}` });
+			}
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/maxCodePoints/maxCodePoints.ts
+/* @__NO_SIDE_EFFECTS__ */
+function maxCodePoints(requirement, message$1) {
+	return {
+		kind: "validation",
+		type: "max_code_points",
+		reference: maxCodePoints,
+		async: false,
+		expects: `<=${requirement}`,
+		requirement,
+		message: message$1,
+		"~run"(dataset, config$1) {
+			if (dataset.typed) {
+				const count = /* @__PURE__ */ _getCodePointCount(dataset.value);
+				if (count > this.requirement) _addIssue(this, "code points", dataset, config$1, { received: `${count}` });
 			}
 			return dataset;
 		}
@@ -46197,6 +46327,28 @@ function minBytes(requirement, message$1) {
 			if (dataset.typed) {
 				const length$1 = /* @__PURE__ */ _getByteCount(dataset.value);
 				if (length$1 < this.requirement) _addIssue(this, "bytes", dataset, config$1, { received: `${length$1}` });
+			}
+			return dataset;
+		}
+	};
+}
+
+//#endregion
+//#region src/actions/minCodePoints/minCodePoints.ts
+/* @__NO_SIDE_EFFECTS__ */
+function minCodePoints(requirement, message$1) {
+	return {
+		kind: "validation",
+		type: "min_code_points",
+		reference: minCodePoints,
+		async: false,
+		expects: `>=${requirement}`,
+		requirement,
+		message: message$1,
+		"~run"(dataset, config$1) {
+			if (dataset.typed) {
+				const count = /* @__PURE__ */ _getCodePointCount(dataset.value);
+				if (count < this.requirement) _addIssue(this, "code points", dataset, config$1, { received: `${count}` });
 			}
 			return dataset;
 		}
@@ -46422,6 +46574,28 @@ function notBytes(requirement, message$1) {
 }
 
 //#endregion
+//#region src/actions/notCodePoints/notCodePoints.ts
+/* @__NO_SIDE_EFFECTS__ */
+function notCodePoints(requirement, message$1) {
+	return {
+		kind: "validation",
+		type: "not_code_points",
+		reference: notCodePoints,
+		async: false,
+		expects: `!${requirement}`,
+		requirement,
+		message: message$1,
+		"~run"(dataset, config$1) {
+			if (dataset.typed) {
+				const count = /* @__PURE__ */ _getCodePointCount(dataset.value);
+				if (count === this.requirement) _addIssue(this, "code points", dataset, config$1, { received: `${count}` });
+			}
+			return dataset;
+		}
+	};
+}
+
+//#endregion
 //#region src/actions/notEntries/notEntries.ts
 /* @__NO_SIDE_EFFECTS__ */
 function notEntries(requirement, message$1) {
@@ -46515,7 +46689,7 @@ function notValue(requirement, message$1) {
 		requirement,
 		message: message$1,
 		"~run"(dataset, config$1) {
-			if (dataset.typed && this.requirement <= dataset.value && this.requirement >= dataset.value) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
+			if (dataset.typed && /* @__PURE__ */ _isValueMatch(this.requirement, dataset.value)) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
 			return dataset;
 		}
 	};
@@ -46534,7 +46708,7 @@ function notValues(requirement, message$1) {
 		requirement,
 		message: message$1,
 		"~run"(dataset, config$1) {
-			if (dataset.typed && this.requirement.some((value$1) => value$1 <= dataset.value && value$1 >= dataset.value)) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
+			if (dataset.typed && this.requirement.some((requirement$1) => /* @__PURE__ */ _isValueMatch(requirement$1, dataset.value))) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
 			return dataset;
 		}
 	};
@@ -47083,8 +47257,7 @@ function stringifyJson(config$1, message$1) {
 				if (output === void 0) {
 					_addIssue(this, "JSON", dataset, config$2);
 					dataset.typed = false;
-				}
-				dataset.value = output;
+				} else dataset.value = output;
 			} catch (error) {
 				if (error instanceof Error) {
 					_addIssue(this, "JSON", dataset, config$2, { received: `"${error.message}"` });
@@ -47586,6 +47759,7 @@ function url(message$1) {
 		expects: null,
 		requirement(input) {
 			try {
+				if (URL.canParse) return URL.canParse(input);
 				new URL(input);
 				return true;
 			} catch {
@@ -47632,7 +47806,7 @@ function value(requirement, message$1) {
 		requirement,
 		message: message$1,
 		"~run"(dataset, config$1) {
-			if (dataset.typed && !(this.requirement <= dataset.value && this.requirement >= dataset.value)) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
+			if (dataset.typed && !/* @__PURE__ */ _isValueMatch(this.requirement, dataset.value)) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
 			return dataset;
 		}
 	};
@@ -47651,7 +47825,7 @@ function values(requirement, message$1) {
 		requirement,
 		message: message$1,
 		"~run"(dataset, config$1) {
-			if (dataset.typed && !this.requirement.some((value$1) => value$1 <= dataset.value && value$1 >= dataset.value)) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
+			if (dataset.typed && !this.requirement.some((requirement$1) => /* @__PURE__ */ _isValueMatch(requirement$1, dataset.value))) _addIssue(this, "value", dataset, config$1, { received: dataset.value instanceof Date ? dataset.value.toJSON() : /* @__PURE__ */ _stringify(dataset.value) });
 			return dataset;
 		}
 	};
@@ -47791,20 +47965,17 @@ var _LruCache = class {
 //#region src/methods/cache/cache.ts
 /* @__NO_SIDE_EFFECTS__ */
 function cache(schema, config$1) {
-	return {
+	return _standardSchema({
 		...schema,
 		cacheConfig: config$1,
 		cache: new _LruCache(config$1),
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, runConfig) {
 			const key = this.cache.key(dataset.value, runConfig);
 			let outputDataset = this.cache.get(key);
 			if (!outputDataset) this.cache.set(key, outputDataset = schema["~run"](dataset, runConfig));
 			return /* @__PURE__ */ _cloneDataset(outputDataset);
 		}
-	};
+	});
 }
 
 //#endregion
@@ -47812,14 +47983,11 @@ function cache(schema, config$1) {
 /* @__NO_SIDE_EFFECTS__ */
 function cacheAsync(schema, config$1) {
 	let activeRuns;
-	return {
+	return _standardSchema({
 		...schema,
 		async: true,
 		cacheConfig: config$1,
 		cache: new _LruCache(config$1),
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, runConfig) {
 			const key = this.cache.key(dataset.value, runConfig);
 			const cached = this.cache.get(key);
@@ -47838,7 +48006,7 @@ function cacheAsync(schema, config$1) {
 				activeRuns?.delete(key);
 			}
 		}
-	};
+	});
 }
 
 //#endregion
@@ -47853,18 +48021,15 @@ function cacheAsync(schema, config$1) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function config(schema, config$1) {
-	return {
+	return _standardSchema({
 		...schema,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config_) {
 			return schema["~run"](dataset, {
 				...config_,
 				...config$1
 			});
 		}
-	};
+	});
 }
 
 //#endregion
@@ -47895,12 +48060,9 @@ function getFallback(schema, dataset, config$1) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function fallback(schema, fallback$1) {
-	return {
+	return _standardSchema({
 		...schema,
 		fallback: fallback$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const outputDataset = schema["~run"](dataset, config$1);
 			return outputDataset.issues ? {
@@ -47908,28 +48070,17 @@ function fallback(schema, fallback$1) {
 				value: /* @__PURE__ */ getFallback(this, outputDataset, config$1)
 			} : outputDataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/methods/fallback/fallbackAsync.ts
-/**
-* Returns a fallback value as output if the input does not match the schema.
-*
-* @param schema The schema to catch.
-* @param fallback The fallback value.
-*
-* @returns The passed schema.
-*/
 /* @__NO_SIDE_EFFECTS__ */
 function fallbackAsync(schema, fallback$1) {
-	return {
+	return _standardSchema({
 		...schema,
 		fallback: fallback$1,
 		async: true,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const outputDataset = await schema["~run"](dataset, config$1);
 			return outputDataset.issues ? {
@@ -47937,7 +48088,7 @@ function fallbackAsync(schema, fallback$1) {
 				value: await /* @__PURE__ */ getFallback(this, outputDataset, config$1)
 			} : outputDataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -48266,27 +48417,24 @@ function is(schema, input) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function any() {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "any",
 		reference: any,
 		expects: "any",
 		async: false,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset) {
 			dataset.typed = true;
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/array/array.ts
 /* @__NO_SIDE_EFFECTS__ */
 function array(item, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "array",
 		reference: array,
@@ -48294,9 +48442,6 @@ function array(item, message$1) {
 		async: false,
 		item,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -48330,14 +48475,14 @@ function array(item, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/array/arrayAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function arrayAsync(item, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "array",
 		reference: arrayAsync,
@@ -48345,9 +48490,6 @@ function arrayAsync(item, message$1) {
 		async: true,
 		item,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -48381,80 +48523,71 @@ function arrayAsync(item, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/bigint/bigint.ts
 /* @__NO_SIDE_EFFECTS__ */
 function bigint(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "bigint",
 		reference: bigint,
 		expects: "bigint",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (typeof dataset.value === "bigint") dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/blob/blob.ts
 /* @__NO_SIDE_EFFECTS__ */
 function blob(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "blob",
 		reference: blob,
 		expects: "Blob",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value instanceof Blob) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/boolean/boolean.ts
 /* @__NO_SIDE_EFFECTS__ */
 function dist_boolean(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "boolean",
 		reference: dist_boolean,
 		expects: "boolean",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (typeof dataset.value === "boolean") dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/custom/custom.ts
 /* @__NO_SIDE_EFFECTS__ */
 function custom(check$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "custom",
 		reference: custom,
@@ -48462,22 +48595,19 @@ function custom(check$1, message$1) {
 		async: false,
 		check: check$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (this.check(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/custom/customAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function customAsync(check$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "custom",
 		reference: customAsync,
@@ -48485,38 +48615,32 @@ function customAsync(check$1, message$1) {
 		async: true,
 		check: check$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (await this.check(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/date/date.ts
 /* @__NO_SIDE_EFFECTS__ */
 function date(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "date",
 		reference: date,
 		expects: "Date",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value instanceof Date) if (!isNaN(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1, { received: "\"Invalid Date\"" });
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -48525,7 +48649,7 @@ function date(message$1) {
 function enum_(enum__, message$1) {
 	const options = [];
 	for (const key in enum__) if (`${+key}` !== key || typeof enum__[key] !== "string" || !Object.is(enum__[enum__[key]], +key)) options.push(enum__[key]);
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "enum",
 		reference: enum_,
@@ -48534,22 +48658,19 @@ function enum_(enum__, message$1) {
 		enum: enum__,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (this.options.includes(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/exactOptional/exactOptional.ts
 /* @__NO_SIDE_EFFECTS__ */
 function exactOptional(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "exact_optional",
 		reference: exactOptional,
@@ -48557,20 +48678,17 @@ function exactOptional(wrapped, default_) {
 		async: false,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/exactOptional/exactOptionalAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function exactOptionalAsync(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "exact_optional",
 		reference: exactOptionalAsync,
@@ -48578,64 +48696,55 @@ function exactOptionalAsync(wrapped, default_) {
 		async: true,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/file/file.ts
 /* @__NO_SIDE_EFFECTS__ */
 function file(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "file",
 		reference: file,
 		expects: "File",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value instanceof File) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/function/function.ts
 /* @__NO_SIDE_EFFECTS__ */
 function function_(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "function",
 		reference: function_,
 		expects: "Function",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (typeof dataset.value === "function") dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/instance/instance.ts
 /* @__NO_SIDE_EFFECTS__ */
 function instance(class_, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "instance",
 		reference: instance,
@@ -48643,15 +48752,12 @@ function instance(class_, message$1) {
 		async: false,
 		class: class_,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value instanceof this.class) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -48669,14 +48775,17 @@ function instance(class_, message$1) {
 /* @__NO_SIDE_EFFECTS__ */
 function _merge(value1, value2) {
 	if (typeof value1 === typeof value2) {
-		if (value1 === value2 || value1 instanceof Date && value2 instanceof Date && +value1 === +value2) return { value: value1 };
+		if (/* @__PURE__ */ _isSameValueZero(value1, value2) || value1 instanceof Date && value2 instanceof Date && /* @__PURE__ */ _isSameValueZero(+value1, +value2)) return { value: value1 };
 		if (value1 && value2 && value1.constructor === Object && value2.constructor === Object) {
-			const nextValue = { ...value1 };
-			for (const key in value2) if (Object.prototype.hasOwnProperty.call(value1, key)) {
+			const nextValue = {
+				...value1,
+				...value2
+			};
+			for (const key in value2) if (Object.prototype.hasOwnProperty.call(value1, key) && Object.prototype.hasOwnProperty.call(value2, key)) {
 				const dataset = /* @__PURE__ */ _merge(value1[key], value2[key]);
 				if (dataset.issue) return dataset;
 				nextValue[key] = dataset.value;
-			} else nextValue[key] = value2[key];
+			}
 			return { value: nextValue };
 		}
 		if (Array.isArray(value1) && Array.isArray(value2)) {
@@ -48698,7 +48807,7 @@ function _merge(value1, value2) {
 //#region src/schemas/intersect/intersect.ts
 /* @__NO_SIDE_EFFECTS__ */
 function intersect(options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "intersect",
 		reference: intersect,
@@ -48706,9 +48815,6 @@ function intersect(options, message$1) {
 		async: false,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (this.options.length) {
 				const input = dataset.value;
@@ -48742,14 +48848,14 @@ function intersect(options, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/intersect/intersectAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function intersectAsync(options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "intersect",
 		reference: intersectAsync,
@@ -48757,9 +48863,6 @@ function intersectAsync(options, message$1) {
 		async: true,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (this.options.length) {
 				const input = dataset.value;
@@ -48793,7 +48896,7 @@ function intersectAsync(options, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -48807,20 +48910,17 @@ function intersectAsync(options, message$1) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function lazy(getter) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "lazy",
 		reference: lazy,
 		expects: "unknown",
 		async: false,
 		getter,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			return this.getter(dataset.value)["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
@@ -48834,27 +48934,24 @@ function lazy(getter) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function lazyAsync(getter) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "lazy",
 		reference: lazyAsync,
 		expects: "unknown",
 		async: true,
 		getter,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			return (await this.getter(dataset.value))["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/literal/literal.ts
 /* @__NO_SIDE_EFFECTS__ */
 function literal(literal_, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "literal",
 		reference: literal,
@@ -48862,22 +48959,19 @@ function literal(literal_, message$1) {
 		async: false,
 		literal: literal_,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
-			if (dataset.value === this.literal) dataset.typed = true;
+			if (/* @__PURE__ */ _isSameValueZero(dataset.value, this.literal)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/looseObject/looseObject.ts
 /* @__NO_SIDE_EFFECTS__ */
 function looseObject(entries$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "loose_object",
 		reference: looseObject,
@@ -48885,9 +48979,6 @@ function looseObject(entries$1, message$1) {
 		async: false,
 		entries: entries$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -48936,19 +49027,19 @@ function looseObject(entries$1, message$1) {
 					}
 				}
 				if (!dataset.issues || !config$1.abortEarly) {
-					for (const key in input) if (/* @__PURE__ */ _isValidObjectKey(input, key) && !(key in this.entries)) dataset.value[key] = input[key];
+					for (const key in input) if (/* @__PURE__ */ _isValidObjectKey(input, key) && !Object.prototype.hasOwnProperty.call(this.entries, key)) dataset.value[key] = input[key];
 				}
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/looseObject/looseObjectAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function looseObjectAsync(entries$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "loose_object",
 		reference: looseObjectAsync,
@@ -48956,9 +49047,6 @@ function looseObjectAsync(entries$1, message$1) {
 		async: true,
 		entries: entries$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -49019,19 +49107,19 @@ function looseObjectAsync(entries$1, message$1) {
 					if (config$1.abortEarly) break;
 				}
 				if (!dataset.issues || !config$1.abortEarly) {
-					for (const key in input) if (/* @__PURE__ */ _isValidObjectKey(input, key) && !(key in this.entries)) dataset.value[key] = input[key];
+					for (const key in input) if (/* @__PURE__ */ _isValidObjectKey(input, key) && !Object.prototype.hasOwnProperty.call(this.entries, key)) dataset.value[key] = input[key];
 				}
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/looseTuple/looseTuple.ts
 /* @__NO_SIDE_EFFECTS__ */
 function looseTuple(items, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "loose_tuple",
 		reference: looseTuple,
@@ -49039,9 +49127,6 @@ function looseTuple(items, message$1) {
 		async: false,
 		items,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -49076,14 +49161,14 @@ function looseTuple(items, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/looseTuple/looseTupleAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function looseTupleAsync(items, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "loose_tuple",
 		reference: looseTupleAsync,
@@ -49091,9 +49176,6 @@ function looseTupleAsync(items, message$1) {
 		async: true,
 		items,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -49134,14 +49216,14 @@ function looseTupleAsync(items, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/map/map.ts
 /* @__NO_SIDE_EFFECTS__ */
 function map(key, value$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "map",
 		reference: map,
@@ -49150,9 +49232,6 @@ function map(key, value$1, message$1) {
 		key,
 		value: value$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input instanceof Map) {
@@ -49205,14 +49284,14 @@ function map(key, value$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/map/mapAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function mapAsync(key, value$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "map",
 		reference: mapAsync,
@@ -49221,9 +49300,6 @@ function mapAsync(key, value$1, message$1) {
 		key,
 		value: value$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input instanceof Map) {
@@ -49280,57 +49356,51 @@ function mapAsync(key, value$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nan/nan.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nan(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "nan",
 		reference: nan,
 		expects: "NaN",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (Number.isNaN(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/never/never.ts
 /* @__NO_SIDE_EFFECTS__ */
 function never(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "never",
 		reference: never,
 		expects: "never",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			_addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nonNullable/nonNullable.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nonNullable(wrapped, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "non_nullable",
 		reference: nonNullable,
@@ -49338,22 +49408,19 @@ function nonNullable(wrapped, message$1) {
 		async: false,
 		wrapped,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value !== null) dataset = this.wrapped["~run"](dataset, config$1);
 			if (dataset.value === null) _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nonNullable/nonNullableAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nonNullableAsync(wrapped, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "non_nullable",
 		reference: nonNullableAsync,
@@ -49361,22 +49428,19 @@ function nonNullableAsync(wrapped, message$1) {
 		async: true,
 		wrapped,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (dataset.value !== null) dataset = await this.wrapped["~run"](dataset, config$1);
 			if (dataset.value === null) _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nonNullish/nonNullish.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nonNullish(wrapped, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "non_nullish",
 		reference: nonNullish,
@@ -49384,22 +49448,19 @@ function nonNullish(wrapped, message$1) {
 		async: false,
 		wrapped,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (!(dataset.value === null || dataset.value === void 0)) dataset = this.wrapped["~run"](dataset, config$1);
 			if (dataset.value === null || dataset.value === void 0) _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nonNullish/nonNullishAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nonNullishAsync(wrapped, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "non_nullish",
 		reference: nonNullishAsync,
@@ -49407,22 +49468,19 @@ function nonNullishAsync(wrapped, message$1) {
 		async: true,
 		wrapped,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (!(dataset.value === null || dataset.value === void 0)) dataset = await this.wrapped["~run"](dataset, config$1);
 			if (dataset.value === null || dataset.value === void 0) _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nonOptional/nonOptional.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nonOptional(wrapped, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "non_optional",
 		reference: nonOptional,
@@ -49430,22 +49488,19 @@ function nonOptional(wrapped, message$1) {
 		async: false,
 		wrapped,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value !== void 0) dataset = this.wrapped["~run"](dataset, config$1);
 			if (dataset.value === void 0) _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nonOptional/nonOptionalAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nonOptionalAsync(wrapped, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "non_optional",
 		reference: nonOptionalAsync,
@@ -49453,44 +49508,38 @@ function nonOptionalAsync(wrapped, message$1) {
 		async: true,
 		wrapped,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (dataset.value !== void 0) dataset = await this.wrapped["~run"](dataset, config$1);
 			if (dataset.value === void 0) _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/null/null.ts
 /* @__NO_SIDE_EFFECTS__ */
 function null_(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "null",
 		reference: null_,
 		expects: "null",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === null) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nullable/nullable.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nullable(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "nullable",
 		reference: nullable,
@@ -49498,9 +49547,6 @@ function nullable(wrapped, default_) {
 		async: false,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === null) {
 				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -49511,14 +49557,14 @@ function nullable(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nullable/nullableAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nullableAsync(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "nullable",
 		reference: nullableAsync,
@@ -49526,9 +49572,6 @@ function nullableAsync(wrapped, default_) {
 		async: true,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (dataset.value === null) {
 				if (this.default !== void 0) dataset.value = await /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -49539,14 +49582,14 @@ function nullableAsync(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nullish/nullish.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nullish(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "nullish",
 		reference: nullish,
@@ -49554,9 +49597,6 @@ function nullish(wrapped, default_) {
 		async: false,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === null || dataset.value === void 0) {
 				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -49567,14 +49607,14 @@ function nullish(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/nullish/nullishAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function nullishAsync(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "nullish",
 		reference: nullishAsync,
@@ -49582,9 +49622,6 @@ function nullishAsync(wrapped, default_) {
 		async: true,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (dataset.value === null || dataset.value === void 0) {
 				if (this.default !== void 0) dataset.value = await /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -49595,36 +49632,33 @@ function nullishAsync(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/number/number.ts
 /* @__NO_SIDE_EFFECTS__ */
 function number(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "number",
 		reference: number,
 		expects: "number",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (typeof dataset.value === "number" && !isNaN(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/object/object.ts
 /* @__NO_SIDE_EFFECTS__ */
 function object(entries$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "object",
 		reference: object,
@@ -49632,9 +49666,6 @@ function object(entries$1, message$1) {
 		async: false,
 		entries: entries$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -49685,14 +49716,14 @@ function object(entries$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/object/objectAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function objectAsync(entries$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "object",
 		reference: objectAsync,
@@ -49700,9 +49731,6 @@ function objectAsync(entries$1, message$1) {
 		async: true,
 		entries: entries$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -49765,14 +49793,14 @@ function objectAsync(entries$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/objectWithRest/objectWithRest.ts
 /* @__NO_SIDE_EFFECTS__ */
 function objectWithRest(entries$1, rest, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "object_with_rest",
 		reference: objectWithRest,
@@ -49781,9 +49809,6 @@ function objectWithRest(entries$1, rest, message$1) {
 		entries: entries$1,
 		rest,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -49832,7 +49857,7 @@ function objectWithRest(entries$1, rest, message$1) {
 					}
 				}
 				if (!dataset.issues || !config$1.abortEarly) {
-					for (const key in input) if (/* @__PURE__ */ _isValidObjectKey(input, key) && !(key in this.entries)) {
+					for (const key in input) if (/* @__PURE__ */ _isValidObjectKey(input, key) && !Object.prototype.hasOwnProperty.call(this.entries, key)) {
 						const valueDataset = this.rest["~run"]({ value: input[key] }, config$1);
 						if (valueDataset.issues) {
 							const pathItem = {
@@ -49860,14 +49885,14 @@ function objectWithRest(entries$1, rest, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/objectWithRest/objectWithRestAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function objectWithRestAsync(entries$1, rest, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "object_with_rest",
 		reference: objectWithRestAsync,
@@ -49876,9 +49901,6 @@ function objectWithRestAsync(entries$1, rest, message$1) {
 		entries: entries$1,
 		rest,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -49900,7 +49922,7 @@ function objectWithRestAsync(entries$1, rest, message$1) {
 						valueSchema,
 						null
 					];
-				})), Promise.all(Object.entries(input).filter(([key]) => /* @__PURE__ */ _isValidObjectKey(input, key) && !(key in this.entries)).map(async ([key, value$1]) => [
+				})), Promise.all(Object.entries(input).filter(([key]) => /* @__PURE__ */ _isValidObjectKey(input, key) && !Object.prototype.hasOwnProperty.call(this.entries, key)).map(async ([key, value$1]) => [
 					key,
 					value$1,
 					await this.rest["~run"]({ value: value$1 }, config$1)
@@ -49968,14 +49990,14 @@ function objectWithRestAsync(entries$1, rest, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/optional/optional.ts
 /* @__NO_SIDE_EFFECTS__ */
 function optional(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "optional",
 		reference: optional,
@@ -49983,9 +50005,6 @@ function optional(wrapped, default_) {
 		async: false,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === void 0) {
 				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -49996,14 +50015,14 @@ function optional(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/optional/optionalAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function optionalAsync(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "optional",
 		reference: optionalAsync,
@@ -50011,9 +50030,6 @@ function optionalAsync(wrapped, default_) {
 		async: true,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (dataset.value === void 0) {
 				if (this.default !== void 0) dataset.value = await /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -50024,14 +50040,14 @@ function optionalAsync(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/picklist/picklist.ts
 /* @__NO_SIDE_EFFECTS__ */
 function picklist(options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "picklist",
 		reference: picklist,
@@ -50039,44 +50055,38 @@ function picklist(options, message$1) {
 		async: false,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (this.options.includes(dataset.value)) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/promise/promise.ts
 /* @__NO_SIDE_EFFECTS__ */
 function promise(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "promise",
 		reference: promise,
 		expects: "Promise",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value instanceof Promise) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/record/record.ts
 /* @__NO_SIDE_EFFECTS__ */
 function record(key, value$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "record",
 		reference: record,
@@ -50085,9 +50095,6 @@ function record(key, value$1, message$1) {
 		key,
 		value: value$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -50140,14 +50147,14 @@ function record(key, value$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/record/recordAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function recordAsync(key, value$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "record",
 		reference: recordAsync,
@@ -50156,9 +50163,6 @@ function recordAsync(key, value$1, message$1) {
 		key,
 		value: value$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -50214,14 +50218,14 @@ function recordAsync(key, value$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/set/set.ts
 /* @__NO_SIDE_EFFECTS__ */
 function set(value$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "set",
 		reference: set,
@@ -50229,9 +50233,6 @@ function set(value$1, message$1) {
 		async: false,
 		value: value$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input instanceof Set) {
@@ -50264,14 +50265,14 @@ function set(value$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/set/setAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function setAsync(value$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "set",
 		reference: setAsync,
@@ -50279,9 +50280,6 @@ function setAsync(value$1, message$1) {
 		async: true,
 		value: value$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input instanceof Set) {
@@ -50314,14 +50312,14 @@ function setAsync(value$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/strictObject/strictObject.ts
 /* @__NO_SIDE_EFFECTS__ */
 function strictObject(entries$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "strict_object",
 		reference: strictObject,
@@ -50329,9 +50327,6 @@ function strictObject(entries$1, message$1) {
 		async: false,
 		entries: entries$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -50380,7 +50375,7 @@ function strictObject(entries$1, message$1) {
 					}
 				}
 				if (!dataset.issues || !config$1.abortEarly) {
-					for (const key in input) if (!(key in this.entries)) {
+					for (const key in input) if (!Object.prototype.hasOwnProperty.call(this.entries, key)) {
 						_addIssue(this, "key", dataset, config$1, {
 							input: key,
 							expected: "never",
@@ -50398,14 +50393,14 @@ function strictObject(entries$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/strictObject/strictObjectAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function strictObjectAsync(entries$1, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "strict_object",
 		reference: strictObjectAsync,
@@ -50413,9 +50408,6 @@ function strictObjectAsync(entries$1, message$1) {
 		async: true,
 		entries: entries$1,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -50476,7 +50468,7 @@ function strictObjectAsync(entries$1, message$1) {
 					if (config$1.abortEarly) break;
 				}
 				if (!dataset.issues || !config$1.abortEarly) {
-					for (const key in input) if (!(key in this.entries)) {
+					for (const key in input) if (!Object.prototype.hasOwnProperty.call(this.entries, key)) {
 						_addIssue(this, "key", dataset, config$1, {
 							input: key,
 							expected: "never",
@@ -50494,14 +50486,14 @@ function strictObjectAsync(entries$1, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/strictTuple/strictTuple.ts
 /* @__NO_SIDE_EFFECTS__ */
 function strictTuple(items, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "strict_tuple",
 		reference: strictTuple,
@@ -50509,9 +50501,6 @@ function strictTuple(items, message$1) {
 		async: false,
 		items,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -50556,14 +50545,14 @@ function strictTuple(items, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/strictTuple/strictTupleAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function strictTupleAsync(items, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "strict_tuple",
 		reference: strictTupleAsync,
@@ -50571,9 +50560,6 @@ function strictTupleAsync(items, message$1) {
 		async: true,
 		items,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -50624,58 +50610,52 @@ function strictTupleAsync(items, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/string/string.ts
 /* @__NO_SIDE_EFFECTS__ */
 function string(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "string",
 		reference: string,
 		expects: "string",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (typeof dataset.value === "string") dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/symbol/symbol.ts
 /* @__NO_SIDE_EFFECTS__ */
 function symbol(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "symbol",
 		reference: symbol,
 		expects: "symbol",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (typeof dataset.value === "symbol") dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/tuple/tuple.ts
 /* @__NO_SIDE_EFFECTS__ */
 function tuple(items, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "tuple",
 		reference: tuple,
@@ -50683,9 +50663,6 @@ function tuple(items, message$1) {
 		async: false,
 		items,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -50719,14 +50696,14 @@ function tuple(items, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/tuple/tupleAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function tupleAsync(items, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "tuple",
 		reference: tupleAsync,
@@ -50734,9 +50711,6 @@ function tupleAsync(items, message$1) {
 		async: true,
 		items,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -50776,14 +50750,14 @@ function tupleAsync(items, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/tupleWithRest/tupleWithRest.ts
 /* @__NO_SIDE_EFFECTS__ */
 function tupleWithRest(items, rest, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "tuple_with_rest",
 		reference: tupleWithRest,
@@ -50792,9 +50766,6 @@ function tupleWithRest(items, rest, message$1) {
 		items,
 		rest,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -50853,14 +50824,14 @@ function tupleWithRest(items, rest, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/tupleWithRest/tupleWithRestAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function tupleWithRestAsync(items, rest, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "tuple_with_rest",
 		reference: tupleWithRestAsync,
@@ -50869,9 +50840,6 @@ function tupleWithRestAsync(items, rest, message$1) {
 		items,
 		rest,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (Array.isArray(input)) {
@@ -50940,36 +50908,33 @@ function tupleWithRestAsync(items, rest, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/undefined/undefined.ts
 /* @__NO_SIDE_EFFECTS__ */
 function undefined_(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "undefined",
 		reference: undefined_,
 		expects: "undefined",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === void 0) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/undefinedable/undefinedable.ts
 /* @__NO_SIDE_EFFECTS__ */
 function undefinedable(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "undefinedable",
 		reference: undefinedable,
@@ -50977,9 +50942,6 @@ function undefinedable(wrapped, default_) {
 		async: false,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === void 0) {
 				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -50990,14 +50952,14 @@ function undefinedable(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/undefinedable/undefinedableAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function undefinedableAsync(wrapped, default_) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "undefinedable",
 		reference: undefinedableAsync,
@@ -51005,9 +50967,6 @@ function undefinedableAsync(wrapped, default_) {
 		async: true,
 		wrapped,
 		default: default_,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			if (dataset.value === void 0) {
 				if (this.default !== void 0) dataset.value = await /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -51018,7 +50977,7 @@ function undefinedableAsync(wrapped, default_) {
 			}
 			return this.wrapped["~run"](dataset, config$1);
 		}
-	};
+	});
 }
 
 //#endregion
@@ -51044,7 +51003,7 @@ function _subIssues(datasets) {
 //#region src/schemas/union/union.ts
 /* @__NO_SIDE_EFFECTS__ */
 function union(options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "union",
 		reference: union,
@@ -51052,9 +51011,6 @@ function union(options, message$1) {
 		async: false,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			let validDataset;
 			let typedDatasets;
@@ -51079,14 +51035,14 @@ function union(options, message$1) {
 			else _addIssue(this, "type", dataset, config$1, { issues: /* @__PURE__ */ _subIssues(untypedDatasets) });
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/union/unionAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function unionAsync(options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "union",
 		reference: unionAsync,
@@ -51094,9 +51050,6 @@ function unionAsync(options, message$1) {
 		async: true,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			let validDataset;
 			let typedDatasets;
@@ -51121,7 +51074,7 @@ function unionAsync(options, message$1) {
 			else _addIssue(this, "type", dataset, config$1, { issues: /* @__PURE__ */ _subIssues(untypedDatasets) });
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -51133,27 +51086,24 @@ function unionAsync(options, message$1) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function unknown() {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "unknown",
 		reference: unknown,
 		expects: "unknown",
 		async: false,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset) {
 			dataset.typed = true;
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/variant/variant.ts
 /* @__NO_SIDE_EFFECTS__ */
 function variant(key, options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "variant",
 		reference: variant,
@@ -51162,9 +51112,6 @@ function variant(key, options, message$1) {
 		key,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -51219,14 +51166,14 @@ function variant(key, options, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/variant/variantAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function variantAsync(key, options, message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "variant",
 		reference: variantAsync,
@@ -51235,9 +51182,6 @@ function variantAsync(key, options, message$1) {
 		key,
 		options,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			const input = dataset.value;
 			if (input && typeof input === "object") {
@@ -51292,29 +51236,26 @@ function variantAsync(key, options, message$1) {
 			} else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/schemas/void/void.ts
 /* @__NO_SIDE_EFFECTS__ */
 function void_(message$1) {
-	return {
+	return _standardSchema({
 		kind: "schema",
 		type: "void",
 		reference: void_,
 		expects: "void",
 		async: false,
 		message: message$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			if (dataset.value === void 0) dataset.typed = true;
 			else _addIssue(this, "type", dataset, config$1);
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -51336,18 +51277,15 @@ function keyof(schema, message$1) {
 */
 /* @__NO_SIDE_EFFECTS__ */
 function message(schema, message_) {
-	return {
+	return _standardSchema({
 		...schema,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			return schema["~run"](dataset, {
 				...config$1,
 				message: message_
 			});
 		}
-	};
+	});
 }
 
 //#endregion
@@ -51365,13 +51303,10 @@ function message(schema, message_) {
 function dist_omit(schema, keys) {
 	const entries$1 = { ...schema.entries };
 	for (const key of keys) delete entries$1[key];
-	return {
+	return _standardSchema({
 		...schema,
-		entries: entries$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		}
-	};
+		entries: entries$1
+	});
 }
 
 //#endregion
@@ -51434,13 +51369,10 @@ function parserAsync(schema, config$1) {
 function partial(schema, keys) {
 	const entries$1 = {};
 	for (const key in schema.entries) entries$1[key] = !keys || keys.includes(key) ? /* @__PURE__ */ optional(schema.entries[key]) : schema.entries[key];
-	return {
+	return _standardSchema({
 		...schema,
-		entries: entries$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		}
-	};
+		entries: entries$1
+	});
 }
 
 //#endregion
@@ -51449,13 +51381,10 @@ function partial(schema, keys) {
 function partialAsync(schema, keys) {
 	const entries$1 = {};
 	for (const key in schema.entries) entries$1[key] = !keys || keys.includes(key) ? /* @__PURE__ */ optionalAsync(schema.entries[key]) : schema.entries[key];
-	return {
+	return _standardSchema({
 		...schema,
-		entries: entries$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		}
-	};
+		entries: entries$1
+	});
 }
 
 //#endregion
@@ -51473,25 +51402,19 @@ function partialAsync(schema, keys) {
 function pick(schema, keys) {
 	const entries$1 = {};
 	for (const key of keys) entries$1[key] = schema.entries[key];
-	return {
+	return _standardSchema({
 		...schema,
-		entries: entries$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		}
-	};
+		entries: entries$1
+	});
 }
 
 //#endregion
 //#region src/methods/pipe/pipe.ts
 /* @__NO_SIDE_EFFECTS__ */
 function pipe(...pipe$1) {
-	return {
+	return _standardSchema({
 		...pipe$1[0],
 		pipe: pipe$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		"~run"(dataset, config$1) {
 			for (const item of pipe$1) if (item.kind !== "metadata") {
 				if (dataset.issues && (item.kind === "schema" || item.kind === "transformation")) {
@@ -51502,20 +51425,17 @@ function pipe(...pipe$1) {
 			}
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
 //#region src/methods/pipe/pipeAsync.ts
 /* @__NO_SIDE_EFFECTS__ */
 function pipeAsync(...pipe$1) {
-	return {
+	return _standardSchema({
 		...pipe$1[0],
 		pipe: pipe$1,
 		async: true,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		},
 		async "~run"(dataset, config$1) {
 			for (const item of pipe$1) if (item.kind !== "metadata") {
 				if (dataset.issues && (item.kind === "schema" || item.kind === "transformation")) {
@@ -51526,7 +51446,7 @@ function pipeAsync(...pipe$1) {
 			}
 			return dataset;
 		}
-	};
+	});
 }
 
 //#endregion
@@ -51537,13 +51457,10 @@ function required(schema, arg2, arg3) {
 	const message$1 = Array.isArray(arg2) ? arg3 : arg2;
 	const entries$1 = {};
 	for (const key in schema.entries) entries$1[key] = !keys || keys.includes(key) ? /* @__PURE__ */ nonOptional(schema.entries[key], message$1) : schema.entries[key];
-	return {
+	return _standardSchema({
 		...schema,
-		entries: entries$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		}
-	};
+		entries: entries$1
+	});
 }
 
 //#endregion
@@ -51554,13 +51471,10 @@ function requiredAsync(schema, arg2, arg3) {
 	const message$1 = Array.isArray(arg2) ? arg3 : arg2;
 	const entries$1 = {};
 	for (const key in schema.entries) entries$1[key] = !keys || keys.includes(key) ? /* @__PURE__ */ nonOptionalAsync(schema.entries[key], message$1) : schema.entries[key];
-	return {
+	return _standardSchema({
 		...schema,
-		entries: entries$1,
-		get "~standard"() {
-			return /* @__PURE__ */ _getStandardProps(this);
-		}
-	};
+		entries: entries$1
+	});
 }
 
 //#endregion
