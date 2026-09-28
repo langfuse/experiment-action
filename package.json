@@ -41,7 +41,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@langfuse/client": "5.11.1",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
@@ -49,7 +49,7 @@
     "@vercel/ncc": "^0.45.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "eslint": "^10.10.0",
+    "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
@@ -57,7 +57,7 @@
     "eslint-plugin-sonarjs": "^4.2.1",
     "husky": "^9.1.7",
     "prettier": "^3.9.8",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
