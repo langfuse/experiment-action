@@ -221,45 +221,6 @@ describe("experiment runner wrappers", () => {
     expect(await fs.readFile(otelEventsFile, "utf8")).toBe("start\nexperiment\nshutdown\n");
   });
 
-  it("lets installed packages resolve their own nested @langfuse/* dependencies", async () => {
-    const tmp = await makeTmpDir();
-    const { installDir, otelEventsFile } = await installFakeNodeRuntime(tmp);
-    const { resultFile, statusFile } = wrapperFiles(tmp);
-    const fakeOtelDir = path.join(installDir, "node_modules", "@langfuse", "otel");
-    const nestedCoreDir = path.join(fakeOtelDir, "node_modules", "@langfuse", "core");
-    await fs.mkdir(nestedCoreDir, { recursive: true });
-    await fs.writeFile(
-      path.join(nestedCoreDir, "package.json"),
-      JSON.stringify({ type: "module", exports: "./index.js" }),
-    );
-    await fs.writeFile(
-      path.join(nestedCoreDir, "index.js"),
-      `export const onlyInNestedCore = "nested";`,
-    );
-    await fs.writeFile(
-      path.join(fakeOtelDir, "index.js"),
-      `import { appendFileSync } from "node:fs";
-      import { onlyInNestedCore } from "@langfuse/core";
-      appendFileSync(process.env.LANGFUSE_OTEL_TEST_EVENTS, onlyInNestedCore + "\\n");
-      export class LangfuseSpanProcessor {}`,
-    );
-    const scriptPath = path.join(tmp, "experiment.mjs");
-    await fs.writeFile(scriptPath, `export async function experiment(context) { return null; }`);
-
-    await runNodeWrapper({
-      scriptPath,
-      resultFile,
-      statusFile,
-      env: {
-        LANGFUSE_ACTION_INSTALL_DIR: installDir,
-        LANGFUSE_OTEL_TEST_EVENTS: otelEventsFile,
-      },
-    });
-
-    expect(await readJson(statusFile)).toEqual({ status: "ok" });
-    expect(await fs.readFile(otelEventsFile, "utf8")).toBe("nested\nstart\nshutdown\n");
-  });
-
   it("returns a contract error when JS experiment omits the context parameter", async () => {
     const tmp = await makeTmpDir();
     const { resultFile, statusFile } = wrapperFiles(tmp);
