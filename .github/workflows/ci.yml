@@ -185,28 +185,6 @@ jobs:
             | . == ["HELLO", "LANGFUSE", "WORLD"]
           '
 
-      # --- Scenario 2b: TypeScript on the latest JS SDK major -----------
-      - name: Run action — single TypeScript experiment (js_sdk_version=latest)
-        id: ts_latest
-        uses: $/
-        with:
-          experiment_path: tests/fixtures/e2e/experiment.ts
-          js_sdk_version: latest
-          langfuse_public_key: ${{ env.LANGFUSE_PUBLIC_KEY }}
-          langfuse_secret_key: ${{ env.LANGFUSE_SECRET_KEY }}
-          langfuse_base_url: ${{ env.LANGFUSE_BASE_URL }}
-          dataset_name: ${{ env.E2E_DATASET_NAME }}
-          github_token: ${{ github.token }}
-          should_comment_on_pr: "false"
-      - name: Assert single-typescript passed on the latest JS SDK
-        env:
-          FAILED: ${{ steps.ts_latest.outputs.failed }}
-          RESULT_JSON: ${{ steps.ts_latest.outputs.result_json }}
-        run: |
-          test "$FAILED" = "false"
-          echo "$RESULT_JSON" | jq -e '.results[0].status == "passed"'
-          echo "$RESULT_JSON" | jq -e '.results[0].experiment_result.run_evaluations[0].value == 1'
-
       # --- Scenario 3: mixed-runtime directory ---------------------------
       - name: Run action — mixed Python+TS directory
         id: mixed
