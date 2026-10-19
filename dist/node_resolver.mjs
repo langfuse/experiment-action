@@ -16,6 +16,12 @@ const INSTALL_DIR = process.env.LANGFUSE_ACTION_INSTALL_DIR;
 const FAKE_PARENT_URL = INSTALL_DIR
   ? pathToFileURL(join(INSTALL_DIR, "__langfuse_entry.mjs")).href
   : null;
+// Imports made by installed packages themselves must keep Node's normal
+// resolution so nested dependencies (e.g. a package-local `@langfuse/core`
+// of a different version) are not replaced by the top-level copy.
+const INSTALLED_PACKAGES_URL = INSTALL_DIR
+  ? pathToFileURL(join(INSTALL_DIR, "node_modules")).href + "/"
+  : null;
 
 const MANAGED_PREFIXES = ["@langfuse/", "@opentelemetry/"];
 const MANAGED_EXACT = new Set(["tsx"]);
@@ -26,7 +32,8 @@ function isManaged(specifier) {
 }
 
 export async function resolve(specifier, context, nextResolve) {
-  if (FAKE_PARENT_URL && isManaged(specifier)) {
+  const fromInstalledPackage = context.parentURL?.startsWith(INSTALLED_PACKAGES_URL);
+  if (FAKE_PARENT_URL && isManaged(specifier) && !fromInstalledPackage) {
     try {
       return await nextResolve(specifier, { ...context, parentURL: FAKE_PARENT_URL });
     } catch {
