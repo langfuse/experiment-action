@@ -44038,9 +44038,11 @@ const JS_SDK_PACKAGE = "@langfuse/client";
 /**
  * Installed alongside the SDK so the action-owned Node runner can initialize
  * Langfuse OpenTelemetry tracing before invoking the user's experiment.
- * Always installed at "latest" — pinning only applies to `JS_SDK_PACKAGE`.
+ * The `@langfuse/*` packages are released in lockstep and must share the
+ * client's version: mixing majors breaks their `@langfuse/core` imports.
  */
-const JS_SUPPORT_PACKAGES = ["@langfuse/tracing", "@langfuse/otel", "@opentelemetry/sdk-node"];
+const JS_LOCKSTEP_PACKAGES = ["@langfuse/tracing", "@langfuse/otel"];
+const JS_SUPPORT_PACKAGES = ["@opentelemetry/sdk-node"];
 class NodeScript extends ExperimentScript {
     nodeModulesDir;
     runtime = "node";
@@ -44103,8 +44105,11 @@ async function ensureNodeSdk(sdkVersion, skipInstallation) {
     const tmpRoot = await createNodeSdkRoot();
     const nodeModulesDir = external_node_path_namespaceObject.join(tmpRoot, "node_modules");
     await promises_namespaceObject.writeFile(external_node_path_namespaceObject.join(tmpRoot, "package.json"), JSON.stringify({ name: "langfuse-action-runtime", private: true, type: "module" }, null, 2));
-    const sdkSpec = sdkVersion === "latest" ? `${JS_SDK_PACKAGE}@latest` : `${JS_SDK_PACKAGE}@${sdkVersion}`;
-    const specs = [sdkSpec, ...JS_SUPPORT_PACKAGES, "tsx"];
+    const specs = [
+        ...[JS_SDK_PACKAGE, ...JS_LOCKSTEP_PACKAGES].map((pkg) => `${pkg}@${sdkVersion}`),
+        ...JS_SUPPORT_PACKAGES,
+        "tsx",
+    ];
     info(`Installing JS SDK into ${tmpRoot}: ${specs.join(", ")}`);
     await exec_exec("npm", ["install", "--silent", "--no-audit", "--no-fund", "--omit=dev", ...specs], { cwd: tmpRoot });
     return nodeModulesDir;
