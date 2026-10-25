@@ -44042,7 +44042,17 @@ const JS_SDK_PACKAGE = "@langfuse/client";
  * client's version: mixing majors breaks their `@langfuse/core` imports.
  */
 const JS_LOCKSTEP_PACKAGES = ["@langfuse/tracing", "@langfuse/otel"];
-const JS_SUPPORT_PACKAGES = ["@opentelemetry/sdk-node"];
+/**
+ * The OTel 0.300 line requires `@opentelemetry/api` >=1.10, which conflicts
+ * with the `sdk-trace-base` 2.x that `@langfuse/otel` requires. The OTLP
+ * exporter packages are `@langfuse/otel` peers whose ranges admit 0.300, so
+ * they are pinned explicitly instead of left to npm's peer auto-install.
+ */
+const JS_SUPPORT_PACKAGES = [
+    "@opentelemetry/sdk-node@<0.300.0",
+    "@opentelemetry/exporter-trace-otlp-http@<0.300.0",
+    "@opentelemetry/otlp-exporter-base@<0.300.0",
+];
 class NodeScript extends ExperimentScript {
     nodeModulesDir;
     runtime = "node";
