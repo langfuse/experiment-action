@@ -44146,7 +44146,11 @@ const JS_SDK_PACKAGE = "@langfuse/client";
  * client's version: mixing majors breaks their `@langfuse/core` imports.
  */
 const JS_LOCKSTEP_PACKAGES = ["@langfuse/tracing", "@langfuse/otel"];
-const JS_SUPPORT_PACKAGES = ["@opentelemetry/sdk-node"];
+/**
+ * sdk-node 0.300+ requires @opentelemetry/api >=1.10 and the 0.300 exporter
+ * line, which `@langfuse/otel` does not support yet (`<0.300.0` peer range).
+ */
+const JS_SUPPORT_PACKAGES = ["@opentelemetry/sdk-node@<0.300.0"];
 class NodeScript extends ExperimentScript {
     nodeModulesDir;
     runtime = "node";
@@ -52074,7 +52078,7 @@ const InputsSchema = object({
     shouldFailOnScriptError: booleanFromString(true),
     shouldCommentOnPr: booleanFromString(true),
     pythonSdkVersion: stringWithDefault("4.6.0b1"),
-    jsSdkVersion: stringWithDefault("5.3.0-beta.0"),
+    jsSdkVersion: stringWithDefault("6.1.1"),
     shouldSkipSdkInstallation: booleanFromString(false),
     // action.yml can't default `github_token` to `${{ github.token }}` — that
     // expression is invalid inside an action manifest. Callers that want PR

@@ -25,7 +25,11 @@ const JS_SDK_PACKAGE = "@langfuse/client";
  * client's version: mixing majors breaks their `@langfuse/core` imports.
  */
 const JS_LOCKSTEP_PACKAGES = ["@langfuse/tracing", "@langfuse/otel"];
-const JS_SUPPORT_PACKAGES = ["@opentelemetry/sdk-node"];
+/**
+ * sdk-node 0.300+ requires @opentelemetry/api >=1.10 and the 0.300 exporter
+ * line, which `@langfuse/otel` does not support yet (`<0.300.0` peer range).
+ */
+const JS_SUPPORT_PACKAGES = ["@opentelemetry/sdk-node@<0.300.0"];
 
 export class NodeScript extends ExperimentScript {
   readonly runtime = "node" as const;

@@ -99,7 +99,7 @@ drop `actions/setup-node`, TS-only projects can drop `actions/setup-python`.
 | `should_fail_on_script_error`  | no       | `true`                       | Fail CI when an experiment script crashes or raises a non-regression error.                                                                                                               |
 | `should_comment_on_pr`         | no       | `true`                       | Post the result as a PR comment.                                                                                                                                                          |
 | `python_sdk_version`           | no       | `4.6.0`                      | Python SDK version to install via `pip` (for `.py` experiments).                                                                                                                          |
-| `js_sdk_version`               | no       | `5.3.0`                      | JS SDK version (`@langfuse/client`, `@langfuse/tracing`, `@langfuse/otel`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                              |
+| `js_sdk_version`               | no       | `6.1.1`                      | JS SDK version (`@langfuse/client`, `@langfuse/tracing`, `@langfuse/otel`) to install via `npm` (for `.ts`/`.js`/`.mjs`/`.cjs` experiments).                                              |
 | `should_skip_sdk_installation` | no       | `false`                      | Skip automatic SDK installation and use the ambient Python/Node environment.                                                                                                              |
 | `github_token`                 | no       |                              | Token used to post the PR comment. Pass `${{ github.token }}` and grant `pull-requests: write` (and `actions: read` for job-level "View run" links + telling parallel matrix legs apart). |
 
@@ -306,7 +306,7 @@ Yes, for each runtime independently:
 
 ```yaml
 python_sdk_version: "4.1.2"
-js_sdk_version: "5.0.0-rc.3"
+js_sdk_version: "6.1.1"
 ```
 
 If a version is already installed and matches, the action skips the install.

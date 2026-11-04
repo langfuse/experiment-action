@@ -43,8 +43,8 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.12.0)
       '@langfuse/client':
-        specifier: 5.13.1
-        version: 5.13.1(@opentelemetry/api@1.9.1)
+        specifier: 6.1.1
+        version: 6.1.1(@opentelemetry/api@1.9.1)
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
@@ -378,19 +378,21 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@langfuse/client@5.13.1':
-    resolution: {integrity: sha512-m9FdxZ4kwoH4k9xFQPG0q9Clpi6VU7bJs9fvJ+0Vv7JHDnsKMw725llPtLuMrHy7BFgGmxgR0lwC+k8BbMDTdw==}
+  '@langfuse/client@6.1.1':
+    resolution: {integrity: sha512-n48SdQRaOvYbs+Fq4T0M+9gfv3Fz4HtfT5LpIkyITbNoy7jRsE4PppT+Sv3FB4iz01KijBIEQJr+sh+bFztaKw==}
+    engines: {node: '>=22'}
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
 
-  '@langfuse/core@5.14.0':
-    resolution: {integrity: sha512-E64XSrRcfddqi76Y0bqi8UYQZfQcChPXb4Ezz4XbQysS3p9Zjqiip3Chv4+Lov374vprjGSorx3CjXjior2CmA==}
+  '@langfuse/core@6.1.1':
+    resolution: {integrity: sha512-vIZBxzbN06P865d8CQHkVOGaFASwoNjX/pQndAQxnX1uUrxGSw1b0oqYlRlirzWzCXhKqBLYjwd68iIv3pfGeg==}
+    engines: {node: '>=22'}
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
 
-  '@langfuse/tracing@5.14.0':
-    resolution: {integrity: sha512-EDheHLGnTkMb6leWXrsnUBacIydy1nITLenpHGgPye6b6K0Td8i3ydkEHSSltw5TKUEj/Kref93x6r29NvKQFg==}
-    engines: {node: '>=20'}
+  '@langfuse/tracing@6.1.1':
+    resolution: {integrity: sha512-+pYnZLGwsET/gG2kmsg/kFyoRE3k2Sd8lUKCPkXo6oWyWyyAdhHEVhk6ix7nZ97ehqkV5VO/9X99Tm3aayYc+Q==}
+    engines: {node: '>=22'}
     peerDependencies:
       '@opentelemetry/api': ^1.9.0
 
@@ -2313,20 +2315,20 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@langfuse/client@5.13.1(@opentelemetry/api@1.9.1)':
+  '@langfuse/client@6.1.1(@opentelemetry/api@1.9.1)':
     dependencies:
-      '@langfuse/core': 5.14.0(@opentelemetry/api@1.9.1)
-      '@langfuse/tracing': 5.14.0(@opentelemetry/api@1.9.1)
+      '@langfuse/core': 6.1.1(@opentelemetry/api@1.9.1)
+      '@langfuse/tracing': 6.1.1(@opentelemetry/api@1.9.1)
       '@opentelemetry/api': 1.9.1
       mustache: 4.2.0
 
-  '@langfuse/core@5.14.0(@opentelemetry/api@1.9.1)':
+  '@langfuse/core@6.1.1(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
 
-  '@langfuse/tracing@5.14.0(@opentelemetry/api@1.9.1)':
+  '@langfuse/tracing@6.1.1(@opentelemetry/api@1.9.1)':
     dependencies:
-      '@langfuse/core': 5.14.0(@opentelemetry/api@1.9.1)
+      '@langfuse/core': 6.1.1(@opentelemetry/api@1.9.1)
       '@opentelemetry/api': 1.9.1
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
