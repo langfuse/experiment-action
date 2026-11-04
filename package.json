@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@langfuse/client": "5.13.1",
+    "@langfuse/client": "6.1.1",
     "@types/node": "^26.6.5",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@typescript-eslint/eslint-plugin": "^8.71.2",
@@ -66,8 +66,8 @@
     "overrides": {
       "brace-expansion@<1.1.21": "1.1.21",
       "brace-expansion@>=4.0.0 <5.0.12": "5.0.12",
-      "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
-      "undici@<6.28.1": "6.29.0"
+      "fast-uri@>=3.0.0 <3.1.9": "3.1.9",
+      "undici@<6.29.1": "6.29.1"
     }
   }
 }
