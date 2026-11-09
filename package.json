@@ -71,7 +71,11 @@
       "eslint>minimatch": "11.0.3",
       "@eslint/config-array>minimatch": "11.0.3",
       "@typescript-eslint/typescript-estree>minimatch": "11.0.3",
-      "eslint-plugin-sonarjs>minimatch": "11.0.3"
+      "eslint-plugin-sonarjs>minimatch": "11.0.3",
+      "@actions/glob>minimatch": "11.0.3"
+    },
+    "patchedDependencies": {
+      "@actions/glob@0.7.0": "patches/@actions__glob@0.7.0.patch"
     }
   }
 }

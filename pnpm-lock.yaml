@@ -13,6 +13,12 @@ overrides:
   '@eslint/config-array>minimatch': 11.0.3
   '@typescript-eslint/typescript-estree>minimatch': 11.0.3
   eslint-plugin-sonarjs>minimatch: 11.0.3
+  '@actions/glob>minimatch': 11.0.3
+
+patchedDependencies:
+  '@actions/glob@0.7.0':
+    hash: 6lwv5dv6pv5tq5zuiyutdh4vte
+    path: patches/@actions__glob@0.7.0.patch
 
 importers:
 
@@ -29,7 +35,7 @@ importers:
         version: 9.1.1
       '@actions/glob':
         specifier: ^0.7.0
-        version: 0.7.0
+        version: 0.7.0(patch_hash=6lwv5dv6pv5tq5zuiyutdh4vte)
       '@actions/io':
         specifier: ^3.0.2
         version: 3.0.2
@@ -1634,10 +1640,6 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
-  minimatch@10.2.5:
-    resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
-    engines: {node: 18 || 20 || >=22}
-
   minimatch@11.0.3:
     resolution: {integrity: sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==}
     engines: {node: 18 || 20 || >=22}
@@ -2140,10 +2142,10 @@ snapshots:
       '@octokit/request-error': 7.1.0
       undici: 6.29.1
 
-  '@actions/glob@0.7.0':
+  '@actions/glob@0.7.0(patch_hash=6lwv5dv6pv5tq5zuiyutdh4vte)':
     dependencies:
       '@actions/core': 3.0.1
-      minimatch: 10.2.5
+      minimatch: 11.0.3
 
   '@actions/http-client@3.0.2':
     dependencies:
@@ -3581,10 +3583,6 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.6.0
 
   math-intrinsics@1.1.0: {}
-
-  minimatch@10.2.5:
-    dependencies:
-      brace-expansion: 5.0.12
 
   minimatch@11.0.3:
     dependencies:
